@@ -1,0 +1,193 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>教学工具箱</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="sidebar" aria-label="工具导航">
+        <div class="brand">
+          <div class="brand-mark">教</div>
+          <div>
+            <h1>教学工具箱</h1>
+            <p>备课、反馈、话术</p>
+          </div>
+        </div>
+        <nav class="nav">
+          <button class="nav-button active" data-tool="profile" type="button">学情反馈表</button>
+          <button class="nav-button" data-tool="service" type="button">课后服务话术</button>
+          <button class="nav-button" data-tool="prep" type="button">课前备课</button>
+        </nav>
+        <section class="side-panel">
+          <h2>第一版范围</h2>
+          <p>先做本地可用的生成器：填写信息、生成文本、复制和导出。后续再接 AI、Excel 和历史记录。</p>
+        </section>
+      </aside>
+
+      <main class="workspace">
+        <header class="topbar">
+          <div>
+            <p class="eyebrow">Local MVP</p>
+            <h2 id="toolTitle">学情反馈表</h2>
+          </div>
+          <div class="actions">
+            <button id="generateReportBtn" class="primary-button" type="button" title="生成 Excel">生成 Excel</button>
+          </div>
+        </header>
+
+        <section class="tool-view active" id="profileTool" data-tool-view="profile">
+          <form class="input-panel" id="profileForm">
+            <div class="form-grid">
+              <label>
+                团队 / 班级
+                <select name="team" id="teamSelect">
+                  <option value="">加载团队中...</option>
+                </select>
+              </label>
+              <label>
+                训练名称
+                <select name="training" id="trainingSelect" disabled>
+                  <option value="">请先选择团队</option>
+                </select>
+              </label>
+              <label>
+                训练密码
+                <input name="trainingPassword" placeholder="私有训练需要填写" />
+              </label>
+            </div>
+            <input type="hidden" name="teamName" id="teamNameInput" />
+            <input type="hidden" name="teamId" id="teamIdInput" />
+            <input type="hidden" name="trainingTitle" id="trainingTitleInput" />
+            <input type="hidden" name="trainingId" id="trainingIdInput" />
+            <input type="hidden" name="problems" id="problemsInput" />
+            <input type="hidden" name="afterClassProblems" id="afterProblemsInput" />
+            <input type="hidden" name="studentsJson" id="studentsJsonInput" />
+            <div class="status-banner" id="reportStatus" hidden></div>
+            <label>
+              学生名单
+              <div class="problem-toolbar">
+                <span id="studentStatus">请选择团队后加载学生</span>
+                <button id="selectAllStudentsBtn" class="mini-button" type="button">全选</button>
+                <button id="clearStudentsBtn" class="mini-button" type="button">清空</button>
+              </div>
+              <div class="student-save-row">
+                <input id="studentsFilenameInput" type="text" value="students.json" aria-label="学生 JSON 文件名" />
+                <button id="saveStudentsBtn" class="mini-button" type="button">保存学生 JSON</button>
+              </div>
+              <div class="student-list" id="studentList" aria-live="polite"></div>
+            </label>
+            <label>
+              课堂题目
+              <div class="problem-toolbar">
+                <span id="problemStatus">请选择训练后加载题目</span>
+                <button id="selectAllProblemsBtn" class="mini-button" type="button">全选</button>
+                <button id="clearProblemsBtn" class="mini-button" type="button">清空</button>
+              </div>
+              <div class="checkbox-list" id="problemList" aria-live="polite"></div>
+            </label>
+            <label>
+              课后题目
+              <div class="problem-toolbar">
+                <span id="afterProblemStatus">请选择训练后加载课后题</span>
+                <button id="selectAllAfterProblemsBtn" class="mini-button" type="button">全选</button>
+                <button id="clearAfterProblemsBtn" class="mini-button" type="button">清空</button>
+              </div>
+              <div class="checkbox-list" id="afterProblemList" aria-live="polite"></div>
+            </label>
+          </form>
+        </section>
+
+        <section class="tool-view" id="serviceTool" data-tool-view="service">
+          <form class="input-panel" id="serviceForm">
+            <div class="form-grid">
+              <label>
+                学生称呼
+                <input name="studentName" placeholder="例如：孩子 / 小明" />
+              </label>
+              <label>
+                服务场景
+                <select name="scenario">
+                  <option value="课后总结" selected>课后总结</option>
+                  <option value="作业提醒">作业提醒</option>
+                  <option value="续课沟通">续课沟通</option>
+                  <option value="问题预警">问题预警</option>
+                </select>
+              </label>
+              <label>
+                表现层次
+                <select name="level">
+                  <option value="优秀">优秀</option>
+                  <option value="良好" selected>良好</option>
+                  <option value="中等">中等</option>
+                  <option value="需关注">需关注</option>
+                </select>
+              </label>
+              <label>
+                长度
+                <select name="length">
+                  <option value="短">短</option>
+                  <option value="中" selected>中</option>
+                  <option value="长">长</option>
+                </select>
+              </label>
+            </div>
+            <label>
+              课堂事实
+              <textarea name="facts" rows="6" placeholder="输入真实事实：做了哪些题、回答过什么问题、哪里卡住、老师怎么提醒。"></textarea>
+            </label>
+            <label>
+              想强调的目标
+              <textarea name="goal" rows="4" placeholder="例如：让家长看到孩子在进步，同时提醒课后要补循环边界。"></textarea>
+            </label>
+          </form>
+        </section>
+
+        <section class="tool-view" id="prepTool" data-tool-view="prep">
+          <form class="input-panel" id="prepForm">
+            <div class="form-grid">
+              <label>
+                课程主题
+                <input name="lessonTopic" placeholder="例如：一次函数图像与性质" />
+              </label>
+              <label>
+                学段 / 对象
+                <input name="audience" placeholder="例如：初二基础班 / C++ 五六年级" />
+              </label>
+              <label>
+                课型
+                <select name="lessonType">
+                  <option value="新授课" selected>新授课</option>
+                  <option value="复习课">复习课</option>
+                  <option value="习题课">习题课</option>
+                  <option value="试讲课">试讲课</option>
+                </select>
+              </label>
+              <label>
+                时长
+                <input name="duration" placeholder="例如：90分钟" />
+              </label>
+            </div>
+            <label>
+              学情分析
+              <textarea name="studentProfile" rows="5" placeholder="学生已有基础、常见错误、理解难点。"></textarea>
+            </label>
+            <label>
+              重点 / 难点
+              <textarea name="keyPoints" rows="5" placeholder="例如：重点是概念和基本题型，难点是数形结合或边界条件。"></textarea>
+            </label>
+            <label>
+              题目 / 材料
+              <textarea name="materials" rows="5" placeholder="列出要讲的题目、PPT页码、OJ题号或教材章节。"></textarea>
+            </label>
+          </form>
+        </section>
+
+      </main>
+    </div>
+
+    <script src="./app.js"></script>
+  </body>
+</html>

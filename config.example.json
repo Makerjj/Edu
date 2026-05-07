@@ -1,0 +1,6 @@
+{
+  "account": "你的手机号",
+  "password": "你的密码",
+  "template_path": "/path/to/your/template.xlsx",
+  "output_dir": "./out"
+}
