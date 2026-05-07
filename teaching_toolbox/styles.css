@@ -332,6 +332,26 @@ code {
   background: #ffffff;
 }
 
+.student-header,
+.student-row {
+  display: grid;
+  grid-template-columns: 18px minmax(180px, 1fr) minmax(180px, 1fr) minmax(160px, 0.8fr);
+  align-items: center;
+  gap: 10px;
+  padding: 10px 11px;
+}
+
+.student-header {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  border-bottom: 1px solid var(--line);
+  background: #f8fafc;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 750;
+}
+
 .student-row {
   border-bottom: 1px solid #eef2f6;
 }
@@ -340,55 +360,19 @@ code {
   border-bottom: 0;
 }
 
-.student-row summary {
-  display: grid;
-  grid-template-columns: 18px minmax(120px, 0.7fr) minmax(160px, 1fr);
-  align-items: center;
-  gap: 10px;
-  padding: 10px 11px;
-  cursor: pointer;
-  list-style: none;
-}
-
-.student-row summary::-webkit-details-marker {
-  display: none;
-}
-
-.student-row summary input[type="checkbox"] {
+.student-row input[type="checkbox"] {
   width: 16px;
   height: 16px;
   margin: 0;
 }
 
-.student-title {
-  color: var(--text);
-  font-weight: 650;
-}
-
-.student-meta {
+.student-cell {
   overflow: hidden;
-  color: var(--muted);
-  font-size: 13px;
-  font-weight: 500;
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 600;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.student-fields {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
-  padding: 0 11px 12px 39px;
-}
-
-.student-fields label {
-  gap: 5px;
-  font-size: 12px;
-}
-
-.student-fields input[readonly] {
-  background: #f8fafc;
-  color: var(--muted);
 }
 
 input,

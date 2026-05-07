@@ -227,71 +227,44 @@ async function loadProblems(trainingId) {
 
 function renderStudentRows(students) {
   studentList.replaceChildren();
+  const header = document.createElement("div");
+  header.className = "student-header";
+  header.innerHTML = "<span></span><span>real_name</span><span>nickname</span><span>user_name</span>";
+  studentList.appendChild(header);
   students.forEach((student, index) => {
-    const row = document.createElement("details");
+    const row = document.createElement("div");
     row.className = "student-row";
-    row.open = false;
     row.dataset.uid = student.uid;
     row.dataset.username = student.username;
     row.dataset.nickname = student.nickname;
 
-    const summary = document.createElement("summary");
     const checkbox = document.createElement("input");
     checkbox.type = "checkbox";
     checkbox.checked = true;
     checkbox.addEventListener("change", updateStudentStatusFromSelection);
 
-    const title = document.createElement("span");
-    title.className = "student-title";
-    title.textContent = `${index + 1}. ${student.realName || student.nickname}`;
+    const realNameInput = document.createElement("input");
+    realNameInput.className = "real-name-input";
+    realNameInput.value = student.realName || student.nickname || "";
+    realNameInput.setAttribute("aria-label", `第 ${index + 1} 位学生 real_name`);
 
-    const meta = document.createElement("span");
-    meta.className = "student-meta";
-    meta.textContent = `nickname: ${student.nickname}`;
-    summary.append(checkbox, title, meta);
+    const nickname = document.createElement("span");
+    nickname.className = "student-cell";
+    nickname.textContent = student.nickname || "";
 
-    const fields = document.createElement("div");
-    fields.className = "student-fields";
-    fields.append(
-      readonlyField("uid", student.uid),
-      readonlyField("username", student.username),
-      readonlyField("nickname", student.nickname),
-      editableRealNameField(student.realName || student.nickname, title),
-    );
-    row.append(summary, fields);
+    const username = document.createElement("span");
+    username.className = "student-cell";
+    username.textContent = student.username || "";
+
+    row.append(checkbox, realNameInput, nickname, username);
     studentList.appendChild(row);
   });
   updateStudentStatusFromSelection();
 }
 
-function readonlyField(labelText, value) {
-  const label = document.createElement("label");
-  label.textContent = labelText;
-  const input = document.createElement("input");
-  input.value = value || "";
-  input.readOnly = true;
-  label.appendChild(input);
-  return label;
-}
-
-function editableRealNameField(value, titleElement) {
-  const label = document.createElement("label");
-  label.textContent = "real_name";
-  const input = document.createElement("input");
-  input.className = "real-name-input";
-  input.value = value || "";
-  input.addEventListener("input", () => {
-    const row = input.closest(".student-row");
-    const index = [...studentList.children].indexOf(row) + 1;
-    titleElement.textContent = `${index}. ${input.value.trim() || row.dataset.nickname}`;
-  });
-  label.appendChild(input);
-  return label;
-}
-
 function selectedStudentPayload() {
   return [...studentList.querySelectorAll(".student-row")]
-    .filter((row) => row.querySelector("summary input[type='checkbox']").checked)
+    .filter((row) => row.querySelector("input[type='checkbox']").checked)
     .map((row) => ({
       uid: row.dataset.uid,
       username: row.dataset.username,
@@ -610,13 +583,13 @@ document.querySelector("#clearAfterProblemsBtn").addEventListener("click", () =>
   syncSelectedAfterProblems();
 });
 document.querySelector("#selectAllStudentsBtn").addEventListener("click", () => {
-  studentList.querySelectorAll("summary input[type='checkbox']").forEach((item) => {
+  studentList.querySelectorAll(".student-row input[type='checkbox']").forEach((item) => {
     item.checked = true;
   });
   updateStudentStatusFromSelection();
 });
 document.querySelector("#clearStudentsBtn").addEventListener("click", () => {
-  studentList.querySelectorAll("summary input[type='checkbox']").forEach((item) => {
+  studentList.querySelectorAll(".student-row input[type='checkbox']").forEach((item) => {
     item.checked = false;
   });
   updateStudentStatusFromSelection();
