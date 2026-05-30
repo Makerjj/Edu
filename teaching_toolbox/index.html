@@ -6,34 +6,70 @@
     <title>教学工具箱</title>
     <link rel="stylesheet" href="./styles.css" />
   </head>
-  <body>
-    <div class="app-shell">
+  <body data-auth-state="checking">
+    <section class="login-screen" id="loginScreen" hidden>
+      <form class="login-panel" id="loginForm">
+        <div class="brand login-brand">
+          <div class="brand-mark">教</div>
+          <div>
+            <h1>教学工具箱</h1>
+            <p>请输入你在 OJ/code.xdf.cn 使用的手机号和密码</p>
+          </div>
+        </div>
+        <label>
+          手机号
+          <input name="account" autocomplete="username" placeholder="OJ 手机号" />
+        </label>
+        <label>
+          密码
+          <input name="password" type="password" autocomplete="current-password" placeholder="OJ 密码" />
+        </label>
+        <label class="remember-row">
+          <input name="remember" type="checkbox" />
+          <span>记住登录状态</span>
+        </label>
+        <button id="loginBtn" class="primary-button" type="submit">登录</button>
+        <div class="status-banner" id="loginStatus" hidden></div>
+      </form>
+    </section>
+
+    <div class="app-shell" id="appShell" hidden>
       <aside class="sidebar" aria-label="工具导航">
         <div class="brand">
           <div class="brand-mark">教</div>
           <div>
             <h1>教学工具箱</h1>
-            <p>备课、反馈、话术</p>
+            <p>学情、题库、教研 Agent</p>
           </div>
         </div>
         <nav class="nav">
           <button class="nav-button active" data-tool="profile" type="button">学情反馈表</button>
+          <button class="nav-button" data-tool="problemBank" type="button">题库检索</button>
           <button class="nav-button" data-tool="service" type="button">课后服务话术</button>
           <button class="nav-button" data-tool="prep" type="button">课前备课</button>
+          <button class="nav-button" data-tool="agentStudio" type="button">Agent 工作台</button>
         </nav>
         <section class="side-panel">
-          <h2>第一版范围</h2>
-          <p>先做本地可用的生成器：填写信息、生成文本、复制和导出。后续再接 AI、Excel 和历史记录。</p>
+          <h2>当前边界</h2>
+          <p>网页是统一入口；学情、题库和 Agent 运行记录由后端服务承载。重渲染、长任务和审计会逐步接入。</p>
         </section>
       </aside>
 
       <main class="workspace">
         <header class="topbar">
           <div>
-            <p class="eyebrow">Local MVP</p>
             <h2 id="toolTitle">学情反馈表</h2>
           </div>
           <div class="actions">
+            <div class="user-menu" id="userMenu">
+              <button class="user-menu-button" id="userMenuBtn" type="button" aria-haspopup="menu" aria-expanded="false">
+                <span id="currentUser"></span>
+                <span class="user-menu-caret" aria-hidden="true">⌄</span>
+              </button>
+              <div class="user-menu-list" id="userMenuList" role="menu" hidden>
+                <button id="logoutBtn" type="button" role="menuitem">退出登录</button>
+              </div>
+            </div>
             <button id="generateReportBtn" class="primary-button" type="button" title="生成 Excel">生成 Excel</button>
           </div>
         </header>
@@ -41,13 +77,13 @@
         <section class="tool-view active" id="profileTool" data-tool-view="profile">
           <form class="input-panel" id="profileForm">
             <div class="form-grid">
-              <label>
+              <label data-field="team">
                 团队 / 班级
                 <select name="team" id="teamSelect">
                   <option value="">加载团队中...</option>
                 </select>
               </label>
-              <label>
+              <label data-field="training">
                 训练名称
                 <select name="training" id="trainingSelect" disabled>
                   <option value="">请先选择团队</option>
@@ -66,23 +102,28 @@
             <input type="hidden" name="afterClassProblems" id="afterProblemsInput" />
             <input type="hidden" name="studentsJson" id="studentsJsonInput" />
             <div class="status-banner" id="reportStatus" hidden></div>
-            <label>
+            <label data-field="students">
               学生名单
               <div class="problem-toolbar">
                 <span id="studentStatus">请选择团队后加载学生</span>
+                <button id="retryStudentsBtn" class="mini-button" type="button" hidden>重新加载</button>
                 <button id="selectAllStudentsBtn" class="mini-button" type="button">全选</button>
                 <button id="clearStudentsBtn" class="mini-button" type="button">清空</button>
               </div>
-              <div class="student-save-row">
-                <input id="studentsFilenameInput" type="text" value="students.json" aria-label="学生 JSON 文件名" />
-                <button id="saveStudentsBtn" class="mini-button" type="button">保存学生 JSON</button>
-              </div>
               <div class="student-list" id="studentList" aria-live="polite"></div>
+              <div class="student-save-row">
+                <input id="studentsFilenameInput" type="hidden" value="students.json" />
+                <input id="studentsJsonUploadInput" type="file" accept=".json,application/json" hidden />
+                <button id="uploadStudentsJsonBtn" class="mini-button" type="button">上传 JSON</button>
+                <button id="saveStudentsBtn" class="mini-button" type="button">保存学生名单</button>
+              </div>
+              <div class="helper-text" id="savedStudentsStatus">保存后，下次选择该团队会自动使用这份名单</div>
             </label>
-            <label>
+            <label data-field="problems">
               课堂题目
               <div class="problem-toolbar">
                 <span id="problemStatus">请选择训练后加载题目</span>
+                <button id="retryProblemsBtn" class="mini-button" type="button" hidden>重新加载</button>
                 <button id="selectAllProblemsBtn" class="mini-button" type="button">全选</button>
                 <button id="clearProblemsBtn" class="mini-button" type="button">清空</button>
               </div>
@@ -92,11 +133,36 @@
               课后题目
               <div class="problem-toolbar">
                 <span id="afterProblemStatus">请选择训练后加载课后题</span>
+                <button id="retryAfterProblemsBtn" class="mini-button" type="button" hidden>重新加载</button>
                 <button id="selectAllAfterProblemsBtn" class="mini-button" type="button">全选</button>
                 <button id="clearAfterProblemsBtn" class="mini-button" type="button">清空</button>
               </div>
               <div class="checkbox-list" id="afterProblemList" aria-live="polite"></div>
             </label>
+          </form>
+        </section>
+
+        <section class="tool-view" id="problemBankTool" data-tool-view="problemBank">
+          <form class="input-panel" id="problemBankForm">
+            <div class="form-grid">
+              <label>
+                题号 / 关键词
+                <input name="query" placeholder="例如：GESP251203T2 / 小杨 / map" />
+              </label>
+              <label>
+                返回数量
+                <input name="limit" type="number" min="1" max="20" value="8" />
+              </label>
+            </div>
+            <label class="remember-row">
+              <input name="includeDetail" type="checkbox" checked />
+              <span>拉取题面详情</span>
+            </label>
+            <div class="problem-toolbar">
+              <span id="problemBankStatus">登录后可检索 OJ/GESP 题库</span>
+              <button id="searchProblemBankBtn" class="mini-button" type="button">检索题库</button>
+            </div>
+            <div class="result-list" id="problemBankResults" aria-live="polite"></div>
           </form>
         </section>
 
@@ -182,6 +248,50 @@
               题目 / 材料
               <textarea name="materials" rows="5" placeholder="列出要讲的题目、PPT页码、OJ题号或教材章节。"></textarea>
             </label>
+          </form>
+        </section>
+
+        <section class="tool-view" id="agentStudioTool" data-tool-view="agentStudio">
+          <form class="input-panel" id="agentStudioForm">
+            <div class="form-grid">
+              <label>
+                任务名称
+                <input name="title" placeholder="例如：GESP 四级 map/set 教学包" />
+              </label>
+              <label>
+                审计等级
+                <select name="auditLevel">
+                  <option value="strict" selected>严格</option>
+                  <option value="normal">常规</option>
+                </select>
+              </label>
+            </div>
+            <label>
+              任务目标
+              <textarea name="goal" rows="4" placeholder="说明要生成什么、给谁用、必须满足哪些质量标准。"></textarea>
+            </label>
+            <label>
+              证据检索关键词
+              <textarea name="evidenceQueries" rows="3" placeholder="每行一个关键词或题号，例如：GESP 四级 map / 小杨的字典"></textarea>
+            </label>
+            <fieldset class="choice-group">
+              <legend>输出产物</legend>
+              <label><input name="outputs" type="checkbox" value="question_pack.generate" checked /> 专题题单</label>
+              <label><input name="outputs" type="checkbox" value="lesson_plan.generate" checked /> 备课方案</label>
+              <label><input name="outputs" type="checkbox" value="video.workflow" /> 视频 contract</label>
+            </fieldset>
+            <div class="problem-toolbar">
+              <span id="agentStudioStatus">先创建可追踪 run，后续再接真实执行</span>
+              <button id="createAgentRunBtn" class="mini-button" type="button">创建 Run</button>
+            </div>
+            <section class="tool-registry-panel">
+              <h3>工具注册表</h3>
+              <div class="tool-registry" id="agentToolRegistry"></div>
+            </section>
+            <section class="tool-registry-panel">
+              <h3>运行记录</h3>
+              <div class="result-list" id="agentRunList" aria-live="polite"></div>
+            </section>
           </form>
         </section>
 

@@ -1,16 +1,17 @@
-cat > .gitignore <<'EOF'
 config.json
 .DS_Store
 __pycache__/
 *.pyc
 .venv/
 .tts_venv/
+pre_lesson/node_modules/
 .pytest_cache/
 out/
 after_class/
+teaching_toolbox/.data/
+teaching_toolbox/.agent_runs/
 teaching_toolbox/.generated/
+teaching_toolbox/__pycache__/
 *.mp4
 *.wav
 pre_lesson/generated_videos/
-EOF
-

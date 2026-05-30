@@ -4,6 +4,11 @@ const toolMeta = {
     formId: "profileForm",
     build: buildProfileFeedback,
   },
+  problemBank: {
+    title: "题库检索",
+    formId: "problemBankForm",
+    build: buildProblemBankPreview,
+  },
   service: {
     title: "课后服务话术",
     formId: "serviceForm",
@@ -14,12 +19,28 @@ const toolMeta = {
     formId: "prepForm",
     build: buildLessonPrep,
   },
+  agentStudio: {
+    title: "Agent 工作台",
+    formId: "agentStudioForm",
+    build: buildAgentStudioPreview,
+  },
 };
 
 let currentTool = "profile";
 let latestOutput = "";
+let studentCandidates = [];
 
 const toolTitle = document.querySelector("#toolTitle");
+const loginScreen = document.querySelector("#loginScreen");
+const appShell = document.querySelector("#appShell");
+const loginForm = document.querySelector("#loginForm");
+const loginBtn = document.querySelector("#loginBtn");
+const loginStatus = document.querySelector("#loginStatus");
+const logoutBtn = document.querySelector("#logoutBtn");
+const currentUser = document.querySelector("#currentUser");
+const userMenu = document.querySelector("#userMenu");
+const userMenuBtn = document.querySelector("#userMenuBtn");
+const userMenuList = document.querySelector("#userMenuList");
 const navButtons = document.querySelectorAll(".nav-button");
 const toolViews = document.querySelectorAll("[data-tool-view]");
 const teamSelect = document.querySelector("#teamSelect");
@@ -34,13 +55,26 @@ const studentList = document.querySelector("#studentList");
 const studentStatus = document.querySelector("#studentStatus");
 const studentsFilenameInput = document.querySelector("#studentsFilenameInput");
 const studentsJsonInput = document.querySelector("#studentsJsonInput");
+const studentsJsonUploadInput = document.querySelector("#studentsJsonUploadInput");
+const uploadStudentsJsonBtn = document.querySelector("#uploadStudentsJsonBtn");
 const saveStudentsBtn = document.querySelector("#saveStudentsBtn");
+const savedStudentsStatus = document.querySelector("#savedStudentsStatus");
+const retryStudentsBtn = document.querySelector("#retryStudentsBtn");
+const retryProblemsBtn = document.querySelector("#retryProblemsBtn");
+const retryAfterProblemsBtn = document.querySelector("#retryAfterProblemsBtn");
 const teamNameInput = document.querySelector("#teamNameInput");
 const teamIdInput = document.querySelector("#teamIdInput");
 const trainingTitleInput = document.querySelector("#trainingTitleInput");
 const trainingIdInput = document.querySelector("#trainingIdInput");
 const reportStatus = document.querySelector("#reportStatus");
 const generateReportBtn = document.querySelector("#generateReportBtn");
+const problemBankStatus = document.querySelector("#problemBankStatus");
+const problemBankResults = document.querySelector("#problemBankResults");
+const searchProblemBankBtn = document.querySelector("#searchProblemBankBtn");
+const agentStudioStatus = document.querySelector("#agentStudioStatus");
+const agentToolRegistry = document.querySelector("#agentToolRegistry");
+const agentRunList = document.querySelector("#agentRunList");
+const createAgentRunBtn = document.querySelector("#createAgentRunBtn");
 
 function getFormData(formId) {
   const form = document.querySelector(`#${formId}`);
@@ -56,35 +90,34 @@ function sentenceJoin(parts) {
   return parts.filter(Boolean).join("\n\n");
 }
 
-function shellQuote(value) {
-  const text = String(value || "");
-  return `'${text.replace(/'/g, `'\\''`)}'`;
-}
-
-function addCliArg(args, flag, value) {
-  const text = String(value || "").trim();
-  if (!text) return;
-  args.push(flag, shellQuote(text));
-}
-
 async function fetchJson(url) {
-  const response = await fetch(url);
+  let response;
+  try {
+    response = await fetch(url);
+  } catch (error) {
+    throw new Error(friendlyNetworkMessage(error));
+  }
   const payload = await readJsonResponse(response);
   if (!response.ok) {
-    throw new Error(payload.error || `请求失败：${response.status}`);
+    throw apiError(payload.error, response.status);
   }
   return payload;
 }
 
 async function postJson(url, body) {
-  const response = await fetch(url, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  });
+  let response;
+  try {
+    response = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+  } catch (error) {
+    throw new Error(friendlyNetworkMessage(error));
+  }
   const payload = await readJsonResponse(response);
   if (!response.ok) {
-    throw new Error(payload.error || `请求失败：${response.status}`);
+    throw apiError(payload.error, response.status);
   }
   return payload;
 }
@@ -95,8 +128,43 @@ async function readJsonResponse(response) {
     return text ? JSON.parse(text) : {};
   } catch (_error) {
     const preview = text.trim().slice(0, 80) || "空响应";
-    throw new Error(`服务器返回的不是 JSON：${preview}`);
+    if (preview.startsWith("<!DOCTYPE") || preview.startsWith("<html")) {
+      throw new Error("页面没有连到工具箱服务。请确认已经启动服务，并从 http://127.0.0.1:8765 打开。");
+    }
+    throw new Error("服务返回了异常内容，请刷新页面后重试。");
   }
+}
+
+function friendlyNetworkMessage(_error) {
+  return "暂时连接不上工具箱服务。请确认服务已启动，然后刷新页面重试。";
+}
+
+function friendlyApiMessage(message, status) {
+  const text = String(message || "").trim();
+  if (text) return text;
+  if (status === 401) return "登录状态已失效，请重新登录。";
+  if (status === 404) return "没有找到对应内容，请刷新页面后重试。";
+  return "操作没有完成，请稍后重试。";
+}
+
+function apiError(message, status) {
+  const error = new Error(friendlyApiMessage(message, status));
+  error.status = status;
+  return error;
+}
+
+function displayError(error, fallback = "操作没有完成，请稍后重试。") {
+  return friendlyApiMessage(error && error.message, 0) || fallback;
+}
+
+function handleSessionError(error) {
+  if (error && error.status === 401) {
+    resetAppData();
+    showLogin();
+    setLoginStatus("登录状态已失效，请重新登录。", "error");
+    return true;
+  }
+  return false;
 }
 
 function option(label, value) {
@@ -112,15 +180,149 @@ function setSelectOptions(select, items, placeholder) {
 }
 
 function setProblemStatus(message) {
+  if (!problemStatus) return;
   problemStatus.textContent = message;
 }
 
 function setAfterProblemStatus(message) {
+  if (!afterProblemStatus) return;
   afterProblemStatus.textContent = message;
 }
 
 function setStudentStatus(message) {
+  if (!studentStatus) return;
   studentStatus.textContent = message;
+}
+
+function setSavedStudentsStatus(message) {
+  if (!savedStudentsStatus) return;
+  savedStudentsStatus.textContent = message;
+}
+
+function markStudentsDirty() {
+  studentsJsonInput.value = "";
+  setSavedStudentsStatus("名单有修改，请保存后再生成 Excel。");
+}
+
+function setRetryButton(button, visible) {
+  button.hidden = !visible;
+}
+
+function setLoginStatus(message, type = "info") {
+  loginStatus.hidden = false;
+  loginStatus.textContent = message;
+  loginStatus.dataset.type = type;
+}
+
+function clearLoginStatus() {
+  loginStatus.hidden = true;
+  loginStatus.textContent = "";
+  delete loginStatus.dataset.type;
+}
+
+function showLogin() {
+  document.body.dataset.authState = "logged-out";
+  loginScreen.hidden = false;
+  appShell.hidden = true;
+  closeUserMenu();
+}
+
+function showApp(account) {
+  document.body.dataset.authState = "logged-in";
+  loginScreen.hidden = true;
+  appShell.hidden = false;
+  currentUser.textContent = account || "当前用户";
+}
+
+function closeUserMenu() {
+  userMenuList.hidden = true;
+  userMenuBtn.setAttribute("aria-expanded", "false");
+}
+
+function toggleUserMenu() {
+  const willOpen = userMenuList.hidden;
+  userMenuList.hidden = !willOpen;
+  userMenuBtn.setAttribute("aria-expanded", String(willOpen));
+}
+
+function resetAppData() {
+  studentCandidates = [];
+  setSelectOptions(teamSelect, [], "请选择团队");
+  setSelectOptions(trainingSelect, [], "请先选择团队");
+  trainingSelect.disabled = true;
+  studentList.replaceChildren();
+  problemList.replaceChildren();
+  afterProblemList.replaceChildren();
+  studentsJsonInput.value = "";
+  problemsInput.value = "";
+  afterProblemsInput.value = "";
+  setStudentStatus("请选择团队后加载学生");
+  setSavedStudentsStatus("保存后，下次选择该团队会自动使用这份名单");
+  setProblemStatus("请选择训练后加载题目");
+  setAfterProblemStatus("请选择训练后加载课后题");
+  setProblemBankStatus("登录后可检索 OJ/GESP 题库");
+  setAgentStudioStatus("先创建可追踪 run，后续再接真实执行");
+  problemBankResults.replaceChildren();
+  agentToolRegistry.replaceChildren();
+  agentRunList.replaceChildren();
+  clearReportStatus();
+}
+
+async function checkLogin() {
+  try {
+    const payload = await fetchJson("/api/me");
+    if (payload.loggedIn) {
+      showApp(payload.account);
+      await loadTeams();
+    } else {
+      showLogin();
+    }
+  } catch (error) {
+    showLogin();
+    setLoginStatus(displayError(error), "error");
+  }
+}
+
+async function login(event) {
+  event.preventDefault();
+  clearLoginStatus();
+  const data = Object.fromEntries(new FormData(loginForm).entries());
+  const account = String(data.account || "").trim();
+  const password = String(data.password || "").trim();
+  if (!/^1\d{10}$/.test(account)) {
+    setLoginStatus("请输入 11 位 OJ 手机号。", "error");
+    return;
+  }
+  if (!password) {
+    setLoginStatus("请输入 OJ 密码。", "error");
+    return;
+  }
+  loginBtn.disabled = true;
+  loginBtn.textContent = "登录中...";
+  try {
+    const payload = await postJson("/api/login", {
+      account,
+      password,
+      remember: data.remember === "on",
+    });
+    resetAppData();
+    showApp(payload.account);
+    await loadTeams();
+  } catch (error) {
+    setLoginStatus(displayError(error, "登录失败，请检查手机号和密码后重试。"), "error");
+  } finally {
+    loginBtn.disabled = false;
+    loginBtn.textContent = "登录";
+  }
+}
+
+async function logout() {
+  try {
+    await postJson("/api/logout", {});
+  } finally {
+    resetAppData();
+    showLogin();
+  }
 }
 
 async function loadTeams() {
@@ -132,12 +334,25 @@ async function loadTeams() {
     setSelectOptions(teamSelect, options, "请选择团队");
     setProblemStatus(`已加载 ${payload.teams.length} 个团队`);
   } catch (error) {
+    if (handleSessionError(error)) return;
     setSelectOptions(teamSelect, [], "团队加载失败");
-    setProblemStatus(error.message);
+    setProblemStatus(displayError(error, "团队加载失败，请稍后重试。"));
   }
 }
 
+function setProblemBankStatus(message) {
+  if (!problemBankStatus) return;
+  problemBankStatus.textContent = message;
+}
+
+function setAgentStudioStatus(message) {
+  if (!agentStudioStatus) return;
+  agentStudioStatus.textContent = message;
+}
+
 async function loadTrainings(groupId) {
+  setRetryButton(retryProblemsBtn, false);
+  setRetryButton(retryAfterProblemsBtn, false);
   trainingSelect.disabled = true;
   setSelectOptions(trainingSelect, [], "训练加载中...");
   problemList.replaceChildren();
@@ -164,31 +379,61 @@ async function loadTrainings(groupId) {
     setProblemStatus(`已加载 ${payload.trainings.length} 个训练`);
     setAfterProblemStatus("请选择训练后加载课后题");
   } catch (error) {
+    if (handleSessionError(error)) return;
     setSelectOptions(trainingSelect, [], "训练加载失败");
-    setProblemStatus(error.message);
-    setAfterProblemStatus(error.message);
+    const message = displayError(error, "训练加载失败，请重新选择团队后重试。");
+    setProblemStatus(message);
+    setAfterProblemStatus(message);
+    setRetryButton(retryProblemsBtn, true);
+    setRetryButton(retryAfterProblemsBtn, true);
   }
   generateOutput();
 }
 
 async function loadStudents(groupId) {
+  setRetryButton(retryStudentsBtn, false);
+  studentCandidates = [];
   studentList.replaceChildren();
+  studentsJsonInput.value = "";
   if (!groupId) {
     setStudentStatus("请选择团队后加载学生");
+    setSavedStudentsStatus("保存后，下次选择该团队会自动使用这份名单");
     return;
   }
 
   setStudentStatus("学生加载中...");
   try {
+    const saved = await fetchJson(`/api/saved-students?groupId=${encodeURIComponent(groupId)}`);
+    if (saved.exists && saved.students.length) {
+      studentCandidates = normalizeStudents(saved.students || []);
+      renderStudentRows(saved.students || []);
+      studentsJsonInput.value = saved.path;
+      setStudentStatus(`已使用保存的学生名单，共 ${saved.count} 名学生`);
+      try {
+        const payload = await fetchJson(`/api/students?groupId=${encodeURIComponent(groupId)}`);
+        studentCandidates = normalizeStudents(payload.students || []);
+        setSavedStudentsStatus("当前正在使用已保存名单；清空后会展示 OJ 全部候选学生。");
+      } catch (_error) {
+        setSavedStudentsStatus("当前正在使用已保存名单；OJ 候选名单暂时不可用。");
+      }
+      return;
+    }
     const payload = await fetchJson(`/api/students?groupId=${encodeURIComponent(groupId)}`);
+    studentCandidates = normalizeStudents(payload.students || []);
     renderStudentRows(payload.students || []);
-    setStudentStatus(`已加载 ${payload.students.length} 名学生，可勾选并修改 real_name`);
+    setStudentStatus(`已从 OJ 加载 ${payload.students.length} 名学生，请确认后保存名单`);
+    setSavedStudentsStatus("还没有保存名单。保存后，下次选择该团队会自动使用。");
   } catch (error) {
-    setStudentStatus(error.message);
+    if (handleSessionError(error)) return;
+    setStudentStatus(displayError(error, "学生名单加载失败，请稍后重试。"));
+    setSavedStudentsStatus("学生名单暂时不可用，请重新加载。");
+    setRetryButton(retryStudentsBtn, true);
   }
 }
 
 async function loadProblems(trainingId) {
+  setRetryButton(retryProblemsBtn, false);
+  setRetryButton(retryAfterProblemsBtn, false);
   problemList.replaceChildren();
   afterProblemList.replaceChildren();
   problemsInput.value = "";
@@ -212,41 +457,80 @@ async function loadProblems(trainingId) {
     if (password) params.set("trainingPassword", password);
     const payload = await fetchJson(`/api/problems?${params.toString()}`);
     const currentProblems = payload.problems.filter((problem) => problem.source !== "previous");
+    const afterProblems = payload.problems.filter((problem) => problem.source === "previous");
     renderProblemCheckboxes(problemList, currentProblems, syncSelectedProblems);
-    renderProblemCheckboxes(afterProblemList, payload.problems, syncSelectedAfterProblems, {
+    renderProblemCheckboxes(afterProblemList, afterProblems, syncSelectedAfterProblems, {
       showSource: true,
     });
     setProblemStatus(`已加载 ${currentProblems.length} 道课堂题，可多选`);
-    setAfterProblemStatus(`已加载 ${payload.problems.length} 道候选课后题，可多选`);
+    setAfterProblemStatus(
+      afterProblems.length
+        ? `已加载上一作业列表 ${afterProblems.length} 道课后题，可多选`
+        : "没有找到上一作业列表的课后题",
+    );
   } catch (error) {
-    setProblemStatus(error.message);
-    setAfterProblemStatus(error.message);
+    if (handleSessionError(error)) return;
+    const message = displayError(error, "题目加载失败，请检查训练密码后重试。");
+    setProblemStatus(message);
+    setAfterProblemStatus(message);
+    setRetryButton(retryProblemsBtn, true);
+    setRetryButton(retryAfterProblemsBtn, true);
   }
   generateOutput();
 }
 
-function renderStudentRows(students) {
+function normalizeStudent(student) {
+  return {
+    uid: String(student.uid ?? student.id ?? "").trim(),
+    username: String(student.username ?? student.userName ?? student.user_name ?? "").trim(),
+    nickname: String(student.nickname ?? student.nickName ?? student.nick_name ?? student.name ?? "").trim(),
+    realName: String(student.realName ?? student.real_name ?? student.nickname ?? student.name ?? "").trim(),
+    school: String(student.school ?? student.academy ?? "").trim(),
+    phone: String(student.phone ?? student.mobile ?? "").trim(),
+  };
+}
+
+function normalizeStudents(students) {
+  return (students || [])
+    .map(normalizeStudent)
+    .filter((student) => student.uid && student.username && student.nickname);
+}
+
+function extractStudentsFromJson(payload) {
+  if (Array.isArray(payload)) return normalizeStudents(payload);
+  if (payload && Array.isArray(payload.students)) return normalizeStudents(payload.students);
+  return [];
+}
+
+function renderStudentRows(students, options = {}) {
+  const checkedByDefault = options.checkedByDefault !== false;
   studentList.replaceChildren();
   const header = document.createElement("div");
   header.className = "student-header";
-  header.innerHTML = "<span></span><span>real_name</span><span>nickname</span><span>user_name</span>";
+  header.innerHTML = "<span></span><span>real_name</span><span>nickname</span><span>user_name</span><span>school</span><span>phone</span>";
   studentList.appendChild(header);
-  students.forEach((student, index) => {
+  normalizeStudents(students).forEach((student, index) => {
     const row = document.createElement("div");
     row.className = "student-row";
     row.dataset.uid = student.uid;
     row.dataset.username = student.username;
     row.dataset.nickname = student.nickname;
+    row.dataset.school = student.school;
+    row.dataset.phone = student.phone;
 
     const checkbox = document.createElement("input");
     checkbox.type = "checkbox";
-    checkbox.checked = true;
-    checkbox.addEventListener("change", updateStudentStatusFromSelection);
+    checkbox.checked = checkedByDefault;
+    checkbox.addEventListener("change", () => {
+      updateStudentStatusFromSelection();
+      markStudentsDirty();
+    });
 
     const realNameInput = document.createElement("input");
     realNameInput.className = "real-name-input";
     realNameInput.value = student.realName || student.nickname || "";
     realNameInput.setAttribute("aria-label", `第 ${index + 1} 位学生 real_name`);
+    realNameInput.addEventListener("input", markStudentsDirty);
 
     const nickname = document.createElement("span");
     nickname.className = "student-cell";
@@ -256,10 +540,56 @@ function renderStudentRows(students) {
     username.className = "student-cell";
     username.textContent = student.username || "";
 
-    row.append(checkbox, realNameInput, nickname, username);
+    const school = document.createElement("span");
+    school.className = "student-cell";
+    school.textContent = student.school || "";
+
+    const phone = document.createElement("span");
+    phone.className = "student-cell";
+    phone.textContent = student.phone || "";
+
+    row.append(checkbox, realNameInput, nickname, username, school, phone);
     studentList.appendChild(row);
   });
   updateStudentStatusFromSelection();
+}
+
+function showAllStudentCandidatesUnchecked() {
+  if (!studentCandidates.length) {
+    studentList.replaceChildren();
+    studentsJsonInput.value = "";
+    setStudentStatus("没有可展示的候选学生，请先选择团队或上传 JSON");
+    setSavedStudentsStatus("当前没有候选名单。");
+    return;
+  }
+  renderStudentRows(studentCandidates, { checkedByDefault: false });
+  studentsJsonInput.value = "";
+  setStudentStatus(`已清空选择，展示全部 ${studentCandidates.length} 名候选学生`);
+  setSavedStudentsStatus("请重新勾选需要生成学情反馈表的学生。");
+}
+
+async function importStudentsJsonFile(file) {
+  if (!file) return;
+  try {
+    const payload = JSON.parse(await file.text());
+    const students = extractStudentsFromJson(payload);
+    if (!students.length) {
+      throw new Error("JSON 中没有识别到学生名单。");
+    }
+    studentCandidates = students;
+    renderStudentRows(students);
+    studentsJsonInput.value = "";
+    if (teamSelect.value) {
+      studentsFilenameInput.value = `students.${teamSelect.value}.json`;
+    }
+    setStudentStatus(`已从 JSON 生成 ${students.length} 名学生`);
+    setSavedStudentsStatus("上传内容尚未保存；确认名单后请点击保存学生名单。");
+    setReportStatus(`已导入 ${students.length} 名学生，请确认后保存。`, "success");
+  } catch (error) {
+    setReportStatus(displayError(error, "JSON 学生名单导入失败，请检查文件格式。"), "error");
+  } finally {
+    studentsJsonUploadInput.value = "";
+  }
 }
 
 function selectedStudentPayload() {
@@ -270,6 +600,8 @@ function selectedStudentPayload() {
       username: row.dataset.username,
       nickname: row.dataset.nickname,
       realName: row.querySelector(".real-name-input").value.trim() || row.dataset.nickname,
+      school: row.dataset.school || "",
+      phone: row.dataset.phone || "",
     }));
 }
 
@@ -300,12 +632,46 @@ async function saveStudentsJson() {
       students,
     });
     studentsJsonInput.value = result.path;
-    setReportStatus(`已保存 ${result.count} 名学生到 ${result.path}`, "success");
+    setStudentStatus(`已保存 ${result.count} 名学生，下次会自动使用`);
+    setSavedStudentsStatus("已保存当前名单；后续生成 Excel 会使用这份名单。");
+    setReportStatus(`已保存 ${result.count} 名学生。`, "success");
   } catch (error) {
-    setReportStatus(error.message, "error");
+    if (handleSessionError(error)) return;
+    setReportStatus(displayError(error, "学生名单保存失败，请稍后重试。"), "error");
   } finally {
     saveStudentsBtn.disabled = false;
-    saveStudentsBtn.textContent = "保存学生 JSON";
+    saveStudentsBtn.textContent = "保存学生名单";
+  }
+}
+
+async function ensureStudentsSavedForReport() {
+  if (studentsJsonInput.value) return true;
+  const students = selectedStudentPayload();
+  if (!students.length) {
+    setReportStatus("请至少选择一名学生", "error");
+    focusField("students");
+    return false;
+  }
+  saveStudentsBtn.disabled = true;
+  saveStudentsBtn.textContent = "保存中...";
+  try {
+    const result = await postJson("/api/students-json", {
+      teamId: teamSelect.value,
+      filename: studentsFilenameInput.value.trim(),
+      students,
+    });
+    studentsJsonInput.value = result.path;
+    setStudentStatus(`已保存 ${result.count} 名学生，下次会自动使用`);
+    setSavedStudentsStatus("已保存当前名单；后续生成 Excel 会使用这份名单。");
+    return true;
+  } catch (error) {
+    if (handleSessionError(error)) return false;
+    setReportStatus(displayError(error, "学生名单保存失败，请稍后重试。"), "error");
+    focusField("students");
+    return false;
+  } finally {
+    saveStudentsBtn.disabled = false;
+    saveStudentsBtn.textContent = "保存学生名单";
   }
 }
 
@@ -353,45 +719,46 @@ function buildProfileFeedback(data) {
   const afterClassProblems = String(data.afterClassProblems || "").trim();
   const trainingPassword = String(data.trainingPassword || "").trim();
 
-  const args = ["python3", "xdf_report.py"];
-  addCliArg(args, "--team", data.team);
-  addCliArg(args, "--training", data.trainingTitle || data.training);
-  addCliArg(args, "--problems", data.problems);
-  addCliArg(args, "--after-class-problems", afterClassProblems);
-  addCliArg(args, "--training-password", trainingPassword);
-
-  const payload = {
-    team: String(data.teamName || data.team || "").trim(),
-    teamId: String(data.teamId || "").trim(),
-    training: String(data.trainingTitle || data.training || "").trim(),
-    trainingId: String(data.trainingId || "").trim(),
-    problems: String(data.problems || "").trim(),
-    afterClassProblems,
-    trainingPassword,
-    studentsJson: String(data.studentsJson || "").trim(),
-  };
-
   const checks = [
-    data.team ? "- 团队已选择" : "- 缺少团队：对应 `--team`",
-    data.training ? "- 训练已选择" : "- 缺少训练：对应 `--training`",
-    data.problems ? "- 课堂题目已填写" : "- 缺少课堂题目：对应 `--problems`",
+    data.team ? "- 团队已选择" : "- 请先选择团队",
+    data.training ? "- 训练已选择" : "- 请先选择训练",
+    data.problems ? "- 课堂题目已选择" : "- 请至少选择一道课堂题目",
     afterClassProblems
-      ? "- 已填写课后题：脚本会尝试匹配当前训练和上一训练"
+      ? "- 已选择课后题"
       : "- 未填写课后题：Excel 课后作业区域保持空白",
   ];
 
   return sentenceJoin([
-    "# 新东方学情反馈表生成",
-    `## 必填参数\n- 团队：${team}\n- 训练：${training}\n- 课堂题目：${problems}`,
-    `## 可选参数\n- 课后题：${afterClassProblems || "未填写"}\n- 训练密码：${trainingPassword ? "已填写" : "未填写"}`,
-    `## 复制到终端运行\n\`\`\`bash\n${args.join(" ")}\n\`\`\``,
-    `## 后端接口草案\n\`\`\`json\n${JSON.stringify(payload, null, 2)}\n\`\`\``,
-    `## 运行前检查\n${checks.join("\n")}`,
+    "# 学情反馈表",
+    `## 当前选择\n- 团队：${team}\n- 训练：${training}\n- 课堂题目：${problems}`,
+    `## 可选内容\n- 课后题：${afterClassProblems || "未填写"}\n- 训练密码：${trainingPassword ? "已填写" : "未填写"}`,
+    `## 检查\n${checks.join("\n")}`,
+  ]);
+}
+
+function buildProblemBankPreview(data) {
+  const query = clean(data.query, "题号或关键词");
+  const limit = clean(data.limit, "8");
+  const detail = data.includeDetail === "on" ? "拉取题面详情" : "只看搜索结果";
+  return sentenceJoin([
+    "# 题库检索",
+    `- 查询：${query}`,
+    `- 数量：${limit}`,
+    `- 模式：${detail}`,
   ]);
 }
 
 function selectedValues(container) {
   return [...container.querySelectorAll("input:checked")].map((item) => item.value);
+}
+
+function toggleAllCheckboxes(container, onChange) {
+  const checkboxes = [...container.querySelectorAll("input[type='checkbox']")];
+  const shouldCheck = checkboxes.some((item) => !item.checked);
+  checkboxes.forEach((item) => {
+    item.checked = shouldCheck;
+  });
+  onChange();
 }
 
 function setReportStatus(message, type = "info") {
@@ -406,6 +773,18 @@ function clearReportStatus() {
   delete reportStatus.dataset.type;
 }
 
+function focusField(fieldName) {
+  const field = document.querySelector(`[data-field="${fieldName}"]`);
+  if (!field) return;
+  field.scrollIntoView({ behavior: "smooth", block: "center" });
+  field.classList.add("field-attention");
+  window.setTimeout(() => field.classList.remove("field-attention"), 1400);
+  const control = field.querySelector("select, input, textarea, button");
+  if (control) {
+    window.setTimeout(() => control.focus({ preventScroll: true }), 250);
+  }
+}
+
 async function generateReport() {
   const payload = {
     teamId: teamSelect.value,
@@ -417,20 +796,27 @@ async function generateReport() {
   };
   if (!payload.teamId) {
     setReportStatus("请先选择团队", "error");
+    focusField("team");
     return;
   }
   if (!payload.trainingId) {
     setReportStatus("请先选择训练", "error");
+    focusField("training");
     return;
   }
   if (!payload.problems.length) {
     setReportStatus("请至少选择一道课堂题目", "error");
+    focusField("problems");
     return;
   }
+  if (!(await ensureStudentsSavedForReport())) {
+    return;
+  }
+  payload.studentsJson = studentsJsonInput.value;
 
   generateReportBtn.disabled = true;
   generateReportBtn.textContent = "生成中...";
-  setReportStatus("正在生成 Excel，请稍等...", "info");
+  setReportStatus("正在读取成绩并生成 Excel，可能需要 10-30 秒，请稍等。", "info");
   try {
     const result = await postJson("/api/reports", payload);
     const link = document.createElement("a");
@@ -441,7 +827,8 @@ async function generateReport() {
     link.remove();
     setReportStatus("Excel 已生成，浏览器正在下载。", "success");
   } catch (error) {
-    setReportStatus(error.message, "error");
+    if (handleSessionError(error)) return;
+    setReportStatus(displayError(error, "Excel 生成失败，请检查选择内容后重试。"), "error");
   } finally {
     generateReportBtn.disabled = false;
     generateReportBtn.textContent = "生成 Excel";
@@ -497,10 +884,169 @@ function buildLessonPrep(data) {
   ]);
 }
 
+function buildAgentStudioPreview(data) {
+  const title = clean(data.title, "任务名称");
+  const goal = clean(data.goal, "任务目标");
+  const evidence = clean(data.evidenceQueries, "证据关键词");
+  const auditLevel = clean(data.auditLevel, "strict");
+  const outputs = collectCheckedValues("#agentStudioForm", "outputs").join("、") || "待选择";
+  return sentenceJoin([
+    `# ${title}`,
+    `## 目标\n${goal}`,
+    `## 证据检索\n${evidence}`,
+    `## 输出\n${outputs}`,
+    `## 审计等级\n${auditLevel}`,
+  ]);
+}
+
+function collectCheckedValues(formSelector, name) {
+  return [
+    ...document.querySelectorAll(`${formSelector} input[name="${name}"]:checked`),
+  ].map((item) => item.value);
+}
+
 function generateOutput() {
   const meta = toolMeta[currentTool];
   const data = getFormData(meta.formId);
   latestOutput = meta.build(data);
+}
+
+function lineList(value) {
+  return String(value || "")
+    .split(/\r?\n/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function renderProblemBankResults(items) {
+  problemBankResults.replaceChildren();
+  if (!items.length) {
+    const empty = document.createElement("div");
+    empty.className = "empty-state";
+    empty.textContent = "没有找到题目。";
+    problemBankResults.appendChild(empty);
+    return;
+  }
+  items.forEach((item) => {
+    const article = document.createElement("article");
+    article.className = "result-card";
+    const meta = [
+      item.tags && item.tags.length ? `标签：${item.tags.join("、")}` : "标签：无",
+      item.total != null && item.ac != null ? `提交/通过：${item.total}/${item.ac}` : "",
+    ]
+      .filter(Boolean)
+      .join(" · ");
+    article.innerHTML = `
+      <h3>${item.problemId} ${item.title}</h3>
+      <p>${meta}</p>
+      <pre></pre>
+    `;
+    article.querySelector("pre").textContent = item.markdown || "";
+    problemBankResults.appendChild(article);
+  });
+}
+
+async function searchProblemBank() {
+  const data = getFormData("problemBankForm");
+  const query = String(data.query || "").trim();
+  if (!query) {
+    setProblemBankStatus("请输入题号或关键词。");
+    return;
+  }
+  searchProblemBankBtn.disabled = true;
+  searchProblemBankBtn.textContent = "检索中...";
+  setProblemBankStatus("正在检索 OJ/GESP 题库...");
+  try {
+    const params = new URLSearchParams({
+      query,
+      limit: String(data.limit || 8),
+      includeDetail: data.includeDetail === "on" ? "1" : "0",
+    });
+    const payload = await fetchJson(`/api/problem-bank/search?${params.toString()}`);
+    renderProblemBankResults(payload.items || []);
+    setProblemBankStatus(`找到 ${payload.count} 条结果。`);
+  } catch (error) {
+    if (handleSessionError(error)) return;
+    setProblemBankStatus(displayError(error, "题库检索失败，请稍后重试。"));
+  } finally {
+    searchProblemBankBtn.disabled = false;
+    searchProblemBankBtn.textContent = "检索题库";
+  }
+}
+
+function renderToolRegistry(tools) {
+  agentToolRegistry.replaceChildren();
+  tools.forEach((tool) => {
+    const card = document.createElement("article");
+    card.className = "tool-card";
+    card.innerHTML = `
+      <div>
+        <h4>${tool.name}</h4>
+        <p>${tool.description}</p>
+      </div>
+      <span data-status="${tool.status}">${tool.status}</span>
+    `;
+    agentToolRegistry.appendChild(card);
+  });
+}
+
+function renderAgentRuns(runs) {
+  agentRunList.replaceChildren();
+  if (!runs.length) {
+    const empty = document.createElement("div");
+    empty.className = "empty-state";
+    empty.textContent = "还没有运行记录。";
+    agentRunList.appendChild(empty);
+    return;
+  }
+  runs.forEach((run) => {
+    const article = document.createElement("article");
+    article.className = "result-card compact";
+    article.innerHTML = `
+      <h3>${run.title}</h3>
+      <p>run_id: <code>${run.runId}</code> · ${run.status} · ${run.createdAt}</p>
+      <p>${run.goal}</p>
+    `;
+    agentRunList.appendChild(article);
+  });
+}
+
+async function loadAgentStudio() {
+  try {
+    const [tools, runs] = await Promise.all([
+      fetchJson("/api/agent/tools"),
+      fetchJson("/api/agent/runs"),
+    ]);
+    renderToolRegistry(tools.tools || []);
+    renderAgentRuns(runs.runs || []);
+  } catch (error) {
+    if (handleSessionError(error)) return;
+    setAgentStudioStatus(displayError(error, "Agent 工作台加载失败，请稍后重试。"));
+  }
+}
+
+async function createAgentRun() {
+  const data = getFormData("agentStudioForm");
+  const payload = {
+    title: data.title,
+    goal: data.goal,
+    auditLevel: data.auditLevel,
+    evidenceQueries: lineList(data.evidenceQueries),
+    outputs: collectCheckedValues("#agentStudioForm", "outputs"),
+  };
+  createAgentRunBtn.disabled = true;
+  createAgentRunBtn.textContent = "创建中...";
+  try {
+    const run = await postJson("/api/agent/runs", payload);
+    setAgentStudioStatus(`已创建 run：${run.runId}`);
+    await loadAgentStudio();
+  } catch (error) {
+    if (handleSessionError(error)) return;
+    setAgentStudioStatus(displayError(error, "创建 Agent run 失败，请检查输入。"));
+  } finally {
+    createAgentRunBtn.disabled = false;
+    createAgentRunBtn.textContent = "创建 Run";
+  }
 }
 
 function switchTool(tool) {
@@ -514,6 +1060,9 @@ function switchTool(tool) {
   });
   restoreDraft();
   generateOutput();
+  if (tool === "agentStudio") {
+    loadAgentStudio();
+  }
 }
 
 function showToast(message) {
@@ -556,13 +1105,21 @@ document.querySelectorAll("form").forEach((form) => {
   form.addEventListener("change", generateOutput);
 });
 
+loginForm.addEventListener("submit", login);
+userMenuBtn.addEventListener("click", toggleUserMenu);
+logoutBtn.addEventListener("click", logout);
+document.addEventListener("click", (event) => {
+  if (!userMenu.contains(event.target)) closeUserMenu();
+});
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape") closeUserMenu();
+});
 document.querySelector("#saveDraftBtn")?.addEventListener("click", saveDraft);
 generateReportBtn.addEventListener("click", generateReport);
+searchProblemBankBtn.addEventListener("click", searchProblemBank);
+createAgentRunBtn.addEventListener("click", createAgentRun);
 document.querySelector("#selectAllProblemsBtn").addEventListener("click", () => {
-  problemList.querySelectorAll("input[type='checkbox']").forEach((item) => {
-    item.checked = true;
-  });
-  syncSelectedProblems();
+  toggleAllCheckboxes(problemList, syncSelectedProblems);
 });
 document.querySelector("#clearProblemsBtn").addEventListener("click", () => {
   problemList.querySelectorAll("input[type='checkbox']").forEach((item) => {
@@ -571,10 +1128,7 @@ document.querySelector("#clearProblemsBtn").addEventListener("click", () => {
   syncSelectedProblems();
 });
 document.querySelector("#selectAllAfterProblemsBtn").addEventListener("click", () => {
-  afterProblemList.querySelectorAll("input[type='checkbox']").forEach((item) => {
-    item.checked = true;
-  });
-  syncSelectedAfterProblems();
+  toggleAllCheckboxes(afterProblemList, syncSelectedAfterProblems);
 });
 document.querySelector("#clearAfterProblemsBtn").addEventListener("click", () => {
   afterProblemList.querySelectorAll("input[type='checkbox']").forEach((item) => {
@@ -583,18 +1137,20 @@ document.querySelector("#clearAfterProblemsBtn").addEventListener("click", () =>
   syncSelectedAfterProblems();
 });
 document.querySelector("#selectAllStudentsBtn").addEventListener("click", () => {
-  studentList.querySelectorAll(".student-row input[type='checkbox']").forEach((item) => {
-    item.checked = true;
-  });
-  updateStudentStatusFromSelection();
+  toggleAllCheckboxes(studentList, updateStudentStatusFromSelection);
+  markStudentsDirty();
 });
 document.querySelector("#clearStudentsBtn").addEventListener("click", () => {
-  studentList.querySelectorAll(".student-row input[type='checkbox']").forEach((item) => {
-    item.checked = false;
-  });
-  updateStudentStatusFromSelection();
+  showAllStudentCandidatesUnchecked();
+});
+uploadStudentsJsonBtn.addEventListener("click", () => studentsJsonUploadInput.click());
+studentsJsonUploadInput.addEventListener("change", () => {
+  importStudentsJsonFile(studentsJsonUploadInput.files[0]);
 });
 saveStudentsBtn.addEventListener("click", saveStudentsJson);
+retryStudentsBtn.addEventListener("click", () => loadStudents(teamSelect.value));
+retryProblemsBtn.addEventListener("click", () => loadProblems(trainingSelect.value));
+retryAfterProblemsBtn.addEventListener("click", () => loadProblems(trainingSelect.value));
 teamSelect.addEventListener("change", () => {
   const selected = teamSelect.selectedOptions[0];
   teamIdInput.value = teamSelect.value;
@@ -616,6 +1172,7 @@ document.querySelector("#profileForm").elements.trainingPassword.addEventListene
   if (trainingSelect.value) loadProblems(trainingSelect.value);
 });
 
-restoreDraft();
-loadTeams();
+showLogin();
+document.body.dataset.authState = "checking";
+checkLogin();
 generateOutput();
