@@ -1,0 +1,25 @@
+{
+  "name": "pre-lesson-remotion-workspace",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "remotion_count_twos",
+    "remotion_py1087_read_string",
+    "remotion_letter_sum",
+    "remotion_prime_composite",
+    "remotion_prime_composite_step",
+    "remotion_text_processing",
+    "remotion_beautiful_numbers",
+    "remotion_password_judgement"
+  ],
+  "scripts": {
+    "render:count-twos": "npm run render -w remotion-count-twos-lesson",
+    "render:py1087": "npm run render -w remotion-py1087-read-string-lesson",
+    "render:letter-sum": "npm run render -w remotion-letter-sum-lesson",
+    "render:prime-composite": "npm run render -w remotion-prime-composite-lesson",
+    "render:prime-composite-step": "npm run render -w remotion-prime-composite-step-lesson",
+    "render:text-processing": "npm run render -w remotion-text-processing-lesson",
+    "render:beautiful-numbers": "npm run render -w remotion-beautiful-numbers-lesson",
+    "render:password-judgement": "npm run render -w remotion-password-judgement-lesson"
+  }
+}

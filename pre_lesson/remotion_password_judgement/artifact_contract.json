@@ -1,0 +1,18 @@
+{
+  "project": "remotion_password_judgement",
+  "composition": "PasswordJudgementLesson",
+  "entry": "src/index.ts",
+  "output": "out/password-judgement-lesson.mp4",
+  "scenes": ["problem", "intro", "sample", "strategy", "trace", "code", "summary"],
+  "forbiddenResidue": [
+    "Py1087",
+    "ReadString",
+    "读取字符串",
+    "problem-py1087",
+    "quit",
+    "abcde",
+    "abab",
+    "中间字符",
+    "最后字符"
+  ]
+}

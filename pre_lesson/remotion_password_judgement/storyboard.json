@@ -1,0 +1,145 @@
+{
+  "title": "三级密码强度：密码判断",
+  "shots": [
+    {
+      "id": "problem-01",
+      "scene": "problem",
+      "title": "题面定位",
+      "visual": "展示原题题面，保留输入、输出和样例区域，先让学生看到题目要求。",
+      "narration": "这节课我们讲密码判断。先看题目：程序里有一个正确密码，用户不断输入，如果输错了就继续等待，如果输对了就输出密码正确，欢迎您，然后结束。",
+      "subtitle": "程序保存正确密码；输错继续等，输对输出欢迎语并结束。",
+      "durationHint": 5,
+      "checks": ["题面完整", "输入输出格式清楚", "没有提前展示完整代码"]
+    },
+    {
+      "id": "intro-01",
+      "scene": "intro",
+      "title": "题意转成程序动作",
+      "visual": "左侧列题目要求，右侧列程序动作：保存密码、反复输入、比较、正确时退出。",
+      "narration": "题目的意思很直接：程序里先规定一个正确密码，比如一二三四五六。用户不断输入密码，输错时程序不要输出额外提示，只是继续等待下一次输入。",
+      "subtitle": "先保存正确密码；输错时不输出，只继续读下一次输入。",
+      "durationHint": 16,
+      "checks": ["讲清楚错误输入没有输出", "强调用户可能输入多次"]
+    },
+    {
+      "id": "intro-02",
+      "scene": "intro",
+      "title": "本题考点",
+      "visual": "突出三个关键词：循环、字符串比较、break。",
+      "narration": "如果输入对了，程序才输出密码正确，欢迎您，然后结束程序。这里考的不是复杂算法，而是循环、字符串比较和 break 的配合。",
+      "subtitle": "正确时输出并结束；核心考点是循环、字符串比较和 break。",
+      "durationHint": 14,
+      "checks": ["考点不泛化", "break 的作用明确"]
+    },
+    {
+      "id": "sample-01",
+      "scene": "sample",
+      "title": "样例输入逐行观察",
+      "visual": "显示样例输入列表，前五行标记为错误输入，最后一行标记为正确输入。",
+      "narration": "先看样例输入。用户依次输入一、十二、一二三、一二三四、一二三四五，这些都不是正确密码一二三四五六，所以程序不输出任何内容，只是继续读下一行。",
+      "subtitle": "前五次输入都不等于正确密码，所以都不输出。",
+      "durationHint": 20,
+      "checks": ["样例输入顺序正确", "错误输入不输出说清楚"]
+    },
+    {
+      "id": "sample-02",
+      "scene": "sample",
+      "title": "样例输出只有一行",
+      "visual": "最后一行输入一二三四五六变绿，右侧只显示一行样例输出。",
+      "narration": "最后输入一二三四五六，和程序里保存的正确密码完全相同，这时才输出密码正确，欢迎您。注意，样例输出只有这一行，前面五次错误输入都没有对应输出。",
+      "subtitle": "最后一次输入正确，输出只有一行：密码正确，欢迎您。",
+      "durationHint": 20,
+      "checks": ["样例输出只有一行", "不添加额外提示"]
+    },
+    {
+      "id": "strategy-01",
+      "scene": "strategy",
+      "title": "五步思路",
+      "visual": "用编号流程图展示五步：保存密码、无限循环、读入、比较、正确则输出并 break。",
+      "narration": "解题思路分成五步。第一步，用一个变量 password 保存正确密码，注意写成字符串。第二步，因为不知道用户会输错多少次，所以用 while True 写无限循环。",
+      "subtitle": "先用字符串保存密码；再用 while True 处理未知次数输入。",
+      "durationHint": 19,
+      "checks": ["password 是字符串", "while True 的原因明确"]
+    },
+    {
+      "id": "strategy-02",
+      "scene": "strategy",
+      "title": "比较和退出",
+      "visual": "流程图后半段高亮：s = input()，s == password，print，break。",
+      "narration": "第三步，每轮循环用 s 等于 input 读取用户输入，input 括号里不要写提示文字。第四步，判断 s 是否等于 password。第五步，如果相等，就打印密码正确，欢迎您，然后 break 跳出循环；如果不相等，什么都不用写，循环会自然进入下一轮。",
+      "subtitle": "每轮读入 s；相等就输出并 break，不相等就自然进入下一轮。",
+      "durationHint": 24,
+      "checks": ["input 括号不写提示", "错误分支不写额外代码"]
+    },
+    {
+      "id": "trace-01",
+      "scene": "trace",
+      "title": "前五轮都失败",
+      "visual": "表格展示轮次、s 的值、s == password 的结果、动作。",
+      "narration": "我们把样例按轮次走一遍。第一轮，s 是字符串一，和 password 不相等，条件为假，程序回到循环开头。第二轮，s 是字符串十二，也不相等。第三、第四、第五轮同理，都只是继续循环。",
+      "subtitle": "前五轮条件都为假，程序只回到循环开头。",
+      "durationHint": 22,
+      "checks": ["轮次和样例对应", "条件真假清楚"]
+    },
+    {
+      "id": "trace-02",
+      "scene": "trace",
+      "title": "第六轮成功退出",
+      "visual": "第六轮表格行变绿，箭头指向 print 和 break。",
+      "narration": "第六轮，s 是字符串一二三四五六，和 password 完全相等，条件为真，于是执行 print，输出欢迎语，接着执行 break，循环结束。",
+      "subtitle": "第六轮相等，执行 print，再执行 break 结束循环。",
+      "durationHint": 16,
+      "checks": ["print 和 break 顺序正确", "循环结束原因明确"]
+    },
+    {
+      "id": "code-01",
+      "scene": "code",
+      "title": "保存密码和循环",
+      "visual": "全屏代码，先高亮 password 行和 while True 行。",
+      "narration": "现在看代码。第一行 password 等于字符串一二三四五六，这就是正确密码。第三行 while True 表示一直循环。",
+      "subtitle": "password 保存正确密码；while True 表示持续等待输入。",
+      "durationHint": 12,
+      "checks": ["代码字号可读", "password 引号可见"]
+    },
+    {
+      "id": "code-02",
+      "scene": "code",
+      "title": "读取输入和比较",
+      "visual": "高亮 s = input() 和 if s == password，两侧显示当前输入和正确密码。",
+      "narration": "第四行 s 等于 input，读取一行输入。这里特别注意，题目提示 input 括号中不允许添加任何信息，所以不能写请输入密码。第五行 if s 等于 password，判断输入和正确密码是否相同。",
+      "subtitle": "input 里不要写提示；if 比较输入和正确密码是否相同。",
+      "durationHint": 18,
+      "checks": ["input() 无提示文字", "比较表达式正确"]
+    },
+    {
+      "id": "code-03",
+      "scene": "code",
+      "title": "正确时输出并退出",
+      "visual": "高亮 print 和 break，错误时路径回到循环开头。",
+      "narration": "条件成立时，第六行输出密码正确，欢迎您，第七行 break 结束循环。条件不成立时，if 里面的代码不执行，程序自动开始下一轮循环。",
+      "subtitle": "相等时输出并 break；不相等时继续下一轮。",
+      "durationHint": 18,
+      "checks": ["正确分支包含 break", "错误分支不输出"]
+    },
+    {
+      "id": "summary-01",
+      "scene": "summary",
+      "title": "主线总结",
+      "visual": "一行主线：设密码 -> 循环读入 -> 比较 -> 正确输出退出。",
+      "narration": "最后总结。这题的主线是，先设定正确密码，然后循环读入，比较输入和正确密码，只有正确时输出并 break。",
+      "subtitle": "主线：设密码、循环读入、比较、正确时输出并 break。",
+      "durationHint": 13,
+      "checks": ["主线完整", "语言适合学生复述"]
+    },
+    {
+      "id": "summary-02",
+      "scene": "summary",
+      "title": "常见错误",
+      "visual": "四个错误项打叉：input 提示、错误时输出、密码写成数字、忘记 break。",
+      "narration": "最容易错的地方有四个：input 括号里写提示文字，错误时输出题目没要求的内容，把密码写成数字而不是字符串，以及输出正确后忘记 break。记住一句话：错误时不输出，正确时输出并退出。",
+      "subtitle": "四个坑：input 提示、错误输出、数字密码、忘记 break。",
+      "durationHint": 15,
+      "checks": ["四个错误都出现", "结尾口诀清楚"]
+    }
+  ]
+}

@@ -1,0 +1,342 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>分镜字幕查看器</title>
+  <style>
+    :root {
+      color-scheme: light;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: #f6f7f9;
+      color: #1d2430;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+    }
+
+    .app {
+      display: grid;
+      grid-template-columns: minmax(280px, 360px) minmax(0, 1fr);
+      min-height: 100vh;
+    }
+
+    aside {
+      border-right: 1px solid #d7dce3;
+      background: #ffffff;
+      overflow-y: auto;
+      padding: 20px;
+    }
+
+    main {
+      padding: 28px;
+      overflow-y: auto;
+    }
+
+    h1,
+    h2,
+    p {
+      margin-top: 0;
+    }
+
+    h1 {
+      font-size: 22px;
+      line-height: 1.25;
+      margin-bottom: 6px;
+    }
+
+    .meta {
+      color: #607086;
+      font-size: 13px;
+      margin-bottom: 18px;
+    }
+
+    .shot-list {
+      display: grid;
+      gap: 8px;
+    }
+
+    button.shot {
+      width: 100%;
+      border: 1px solid #d7dce3;
+      border-radius: 8px;
+      background: #ffffff;
+      color: inherit;
+      cursor: pointer;
+      padding: 10px 12px;
+      text-align: left;
+    }
+
+    button.shot.active {
+      border-color: #2563eb;
+      background: #eef4ff;
+    }
+
+    .shot-id {
+      color: #2563eb;
+      display: block;
+      font-size: 12px;
+      font-weight: 700;
+      margin-bottom: 4px;
+    }
+
+    .shot-title {
+      display: block;
+      font-size: 15px;
+      font-weight: 650;
+      line-height: 1.35;
+    }
+
+    .shot-scene {
+      color: #607086;
+      display: block;
+      font-size: 12px;
+      margin-top: 4px;
+    }
+
+    .detail {
+      max-width: 980px;
+    }
+
+    .detail-header {
+      align-items: start;
+      border-bottom: 1px solid #d7dce3;
+      display: flex;
+      gap: 16px;
+      justify-content: space-between;
+      margin-bottom: 20px;
+      padding-bottom: 18px;
+    }
+
+    .badge {
+      background: #e8f6ef;
+      border: 1px solid #b9e5ce;
+      border-radius: 999px;
+      color: #17643a;
+      display: inline-flex;
+      font-size: 13px;
+      font-weight: 700;
+      padding: 5px 10px;
+      white-space: nowrap;
+    }
+
+    .panel {
+      background: #ffffff;
+      border: 1px solid #d7dce3;
+      border-radius: 8px;
+      margin-bottom: 14px;
+      padding: 16px;
+    }
+
+    .panel h3 {
+      color: #3b4656;
+      font-size: 14px;
+      margin: 0 0 10px;
+    }
+
+    .panel p {
+      font-size: 17px;
+      line-height: 1.7;
+      margin-bottom: 0;
+      white-space: pre-wrap;
+    }
+
+    .subtitle p {
+      color: #0f172a;
+      font-size: 20px;
+      font-weight: 700;
+      line-height: 1.55;
+    }
+
+    .checks {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin: 0;
+      padding: 0;
+    }
+
+    .checks li {
+      background: #f1f5f9;
+      border: 1px solid #d9e2ec;
+      border-radius: 999px;
+      list-style: none;
+      padding: 6px 10px;
+    }
+
+    .error {
+      background: #fff1f2;
+      border: 1px solid #fecdd3;
+      border-radius: 8px;
+      color: #9f1239;
+      padding: 16px;
+    }
+
+    @media (max-width: 760px) {
+      .app {
+        grid-template-columns: 1fr;
+      }
+
+      aside {
+        border-right: 0;
+        border-bottom: 1px solid #d7dce3;
+        max-height: 45vh;
+      }
+
+      main {
+        padding: 20px;
+      }
+
+      .detail-header {
+        display: block;
+      }
+
+      .badge {
+        margin-top: 8px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <aside>
+      <h1 id="title">分镜字幕查看器</h1>
+      <p class="meta" id="summary">读取 storyboard.json 中...</p>
+      <div class="shot-list" id="shotList"></div>
+    </aside>
+    <main>
+      <section class="detail" id="detail"></section>
+    </main>
+  </div>
+
+  <script>
+    const requiredFields = ["id", "scene", "title", "visual", "narration", "subtitle"];
+    const shotList = document.querySelector("#shotList");
+    const detail = document.querySelector("#detail");
+    const title = document.querySelector("#title");
+    const summary = document.querySelector("#summary");
+    let shots = [];
+    let activeIndex = 0;
+
+    function escapeHtml(value) {
+      return String(value ?? "")
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;")
+        .replaceAll('"', "&quot;")
+        .replaceAll("'", "&#039;");
+    }
+
+    function validateStoryboard(data) {
+      if (!data || !Array.isArray(data.shots) || data.shots.length === 0) {
+        return ["storyboard.json 需要包含非空 shots 数组"];
+      }
+      const seen = new Set();
+      const findings = [];
+      data.shots.forEach((shot, index) => {
+        const shotId = shot && shot.id ? shot.id : `#${index + 1}`;
+        if (!shot || typeof shot !== "object") {
+          findings.push(`第 ${index + 1} 条分镜必须是对象`);
+          return;
+        }
+        if (seen.has(shotId)) {
+          findings.push(`分镜 ${shotId} 重复`);
+        }
+        seen.add(shotId);
+        requiredFields.forEach((field) => {
+          if (typeof shot[field] !== "string" || shot[field].trim() === "") {
+            findings.push(`分镜 ${shotId} 缺少 ${field}`);
+          }
+        });
+      });
+      return findings;
+    }
+
+    function selectShot(index) {
+      activeIndex = index;
+      render();
+    }
+
+    function render() {
+      shotList.innerHTML = shots.map((shot, index) => `
+        <button class="shot ${index === activeIndex ? "active" : ""}" type="button" data-index="${index}">
+          <span class="shot-id">${escapeHtml(shot.id)}</span>
+          <span class="shot-title">${escapeHtml(shot.title)}</span>
+          <span class="shot-scene">${escapeHtml(shot.scene)} · ${escapeHtml(shot.durationHint || "?")} 秒</span>
+        </button>
+      `).join("");
+
+      shotList.querySelectorAll("button.shot").forEach((button) => {
+        button.addEventListener("click", () => selectShot(Number(button.dataset.index)));
+      });
+
+      const shot = shots[activeIndex];
+      const checks = Array.isArray(shot.checks) ? shot.checks : [];
+      detail.innerHTML = `
+        <div class="detail-header">
+          <div>
+            <h2>${escapeHtml(shot.title)}</h2>
+            <div class="meta">${escapeHtml(shot.id)} · scene: ${escapeHtml(shot.scene)}</div>
+          </div>
+          <span class="badge">${escapeHtml(shot.durationHint || "?")} 秒</span>
+        </div>
+        <section class="panel">
+          <h3>画面说明</h3>
+          <p>${escapeHtml(shot.visual)}</p>
+        </section>
+        <section class="panel">
+          <h3>旁白脚本</h3>
+          <p>${escapeHtml(shot.narration)}</p>
+        </section>
+        <section class="panel subtitle">
+          <h3>字幕文本</h3>
+          <p>${escapeHtml(shot.subtitle)}</p>
+        </section>
+        <section class="panel">
+          <h3>检查点</h3>
+          <ul class="checks">
+            ${checks.map((item) => `<li>${escapeHtml(item)}</li>`).join("") || "<li>未设置</li>"}
+          </ul>
+        </section>
+      `;
+    }
+
+    function showError(message, findings = []) {
+      summary.textContent = "读取失败";
+      detail.innerHTML = `
+        <div class="error">
+          <strong>${escapeHtml(message)}</strong>
+          ${findings.length ? `<ul>${findings.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ul>` : ""}
+        </div>
+      `;
+    }
+
+    fetch("storyboard.json", {cache: "no-store"})
+      .then((response) => {
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}`);
+        }
+        return response.json();
+      })
+      .then((data) => {
+        const findings = validateStoryboard(data);
+        if (findings.length) {
+          showError("storyboard.json 校验失败", findings);
+          return;
+        }
+        title.textContent = data.title || "分镜字幕查看器";
+        shots = data.shots;
+        summary.textContent = `${shots.length} 个分镜`;
+        render();
+      })
+      .catch((error) => {
+        showError(`无法读取 storyboard.json：${error.message}`);
+      });
+  </script>
+</body>
+</html>
