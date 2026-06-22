@@ -3,13 +3,52 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>分镜字幕查看器</title>
+  <title>分镜字幕工作台</title>
   <style>
     :root {
       color-scheme: light;
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-      background: #f6f7f9;
-      color: #1d2430;
+      --primary: #171717;
+      --secondary: #4d4d4d;
+      --tertiary: #006bff;
+      --background-100: #ffffff;
+      --background-200: #fafafa;
+      --gray-100: #f2f2f2;
+      --gray-200: #ebebeb;
+      --gray-300: #e6e6e6;
+      --gray-400: #eaeaea;
+      --gray-700: #8f8f8f;
+      --gray-900: #4d4d4d;
+      --gray-1000: #171717;
+      --gray-alpha-100: #0000000d;
+      --gray-alpha-200: #00000015;
+      --gray-alpha-300: #0000001a;
+      --gray-alpha-400: #00000014;
+      --gray-alpha-500: #00000036;
+      --blue-100: #f0f7ff;
+      --blue-200: #e9f4ff;
+      --blue-700: #006bff;
+      --blue-1000: #002359;
+      --green-100: #ecfdec;
+      --green-700: #28a948;
+      --green-1000: #003a00;
+      --amber-100: #fff6de;
+      --amber-700: #ffae00;
+      --amber-1000: #561900;
+      --red-100: #ffeeef;
+      --red-700: #fc0035;
+      --red-1000: #47000c;
+      --radius-sm: 6px;
+      --radius-md: 8px;
+      --radius-full: 9999px;
+      --space-1: 4px;
+      --space-2: 8px;
+      --space-3: 12px;
+      --space-4: 16px;
+      --space-6: 24px;
+      --space-8: 32px;
+      font-family: "Geist Sans", Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: var(--background-100);
+      color: var(--gray-1000);
     }
 
     * {
@@ -18,206 +57,395 @@
 
     body {
       margin: 0;
+      min-width: 320px;
+      background: var(--background-100);
     }
 
-    .app {
-      display: grid;
-      grid-template-columns: minmax(280px, 360px) minmax(0, 1fr);
-      min-height: 100vh;
+    button {
+      font: inherit;
     }
 
-    aside {
-      border-right: 1px solid #d7dce3;
-      background: #ffffff;
-      overflow-y: auto;
-      padding: 20px;
-    }
-
-    main {
-      padding: 28px;
-      overflow-y: auto;
+    button:focus-visible {
+      outline: 0;
+      box-shadow: 0 0 0 2px var(--background-100), 0 0 0 4px var(--blue-700);
     }
 
     h1,
     h2,
+    h3,
     p {
       margin-top: 0;
     }
 
-    h1 {
-      font-size: 22px;
-      line-height: 1.25;
-      margin-bottom: 6px;
+    .workspace-shell {
+      display: grid;
+      grid-template-columns: minmax(260px, 320px) minmax(420px, 1fr) minmax(260px, 320px);
+      min-height: 100vh;
+      background: var(--background-100);
     }
 
-    .meta {
-      color: #607086;
+    .shot-rail,
+    .review-rail {
+      background: var(--background-200);
+      border-color: var(--gray-alpha-400);
+      overflow-y: auto;
+      padding: var(--space-6);
+    }
+
+    .shot-rail {
+      border-right: 1px solid var(--gray-alpha-400);
+    }
+
+    .review-rail {
+      border-left: 1px solid var(--gray-alpha-400);
+    }
+
+    .script-panel {
+      min-width: 0;
+      overflow-y: auto;
+      padding: var(--space-8);
+    }
+
+    .eyebrow {
+      color: var(--gray-900);
+      font-size: 12px;
+      font-weight: 500;
+      line-height: 16px;
+      margin-bottom: var(--space-2);
+    }
+
+    .workspace-title {
+      font-size: 24px;
+      font-weight: 600;
+      line-height: 32px;
+      margin-bottom: var(--space-2);
+    }
+
+    .workspace-meta {
+      color: var(--gray-900);
       font-size: 13px;
-      margin-bottom: 18px;
+      line-height: 20px;
+      margin-bottom: var(--space-6);
+    }
+
+    .scene-group {
+      margin-bottom: var(--space-6);
+    }
+
+    .scene-label {
+      align-items: center;
+      color: var(--gray-900);
+      display: flex;
+      font-size: 12px;
+      font-weight: 500;
+      justify-content: space-between;
+      line-height: 16px;
+      margin-bottom: var(--space-2);
+      text-transform: uppercase;
+    }
+
+    .scene-count {
+      color: var(--gray-700);
+      font-variant-numeric: tabular-nums;
+      text-transform: none;
     }
 
     .shot-list {
       display: grid;
-      gap: 8px;
+      gap: var(--space-2);
     }
 
-    button.shot {
-      width: 100%;
-      border: 1px solid #d7dce3;
-      border-radius: 8px;
-      background: #ffffff;
+    .shot-card {
+      background: var(--background-100);
+      border: 1px solid var(--gray-alpha-400);
+      border-radius: var(--radius-sm);
       color: inherit;
       cursor: pointer;
-      padding: 10px 12px;
+      min-height: 76px;
+      padding: var(--space-3);
       text-align: left;
+      width: 100%;
     }
 
-    button.shot.active {
-      border-color: #2563eb;
-      background: #eef4ff;
+    .shot-card:hover {
+      border-color: var(--gray-alpha-500);
+      background: var(--gray-alpha-100);
     }
 
-    .shot-id {
-      color: #2563eb;
+    .shot-card.active {
+      background: var(--blue-100);
+      border-color: var(--blue-700);
+    }
+
+    .shot-card-id {
+      color: var(--blue-700);
       display: block;
+      font-family: "Geist Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
       font-size: 12px;
-      font-weight: 700;
-      margin-bottom: 4px;
+      line-height: 16px;
+      margin-bottom: var(--space-1);
     }
 
-    .shot-title {
+    .shot-card-title {
       display: block;
-      font-size: 15px;
-      font-weight: 650;
-      line-height: 1.35;
+      font-size: 14px;
+      font-weight: 500;
+      line-height: 20px;
+      margin-bottom: var(--space-1);
     }
 
-    .shot-scene {
-      color: #607086;
-      display: block;
+    .shot-card-meta {
+      color: var(--gray-900);
+      display: flex;
       font-size: 12px;
-      margin-top: 4px;
-    }
-
-    .detail {
-      max-width: 980px;
+      gap: var(--space-2);
+      line-height: 16px;
     }
 
     .detail-header {
       align-items: start;
-      border-bottom: 1px solid #d7dce3;
+      border-bottom: 1px solid var(--gray-alpha-400);
       display: flex;
-      gap: 16px;
+      gap: var(--space-6);
       justify-content: space-between;
-      margin-bottom: 20px;
-      padding-bottom: 18px;
+      margin-bottom: var(--space-6);
+      padding-bottom: var(--space-6);
     }
 
-    .badge {
-      background: #e8f6ef;
-      border: 1px solid #b9e5ce;
-      border-radius: 999px;
-      color: #17643a;
-      display: inline-flex;
+    .detail-title {
+      font-size: 24px;
+      font-weight: 600;
+      line-height: 32px;
+      margin-bottom: var(--space-2);
+    }
+
+    .detail-meta {
+      color: var(--gray-900);
+      font-family: "Geist Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
       font-size: 13px;
-      font-weight: 700;
+      line-height: 20px;
+    }
+
+    .status-pill {
+      align-items: center;
+      border: 1px solid var(--gray-alpha-400);
+      border-radius: var(--radius-full);
+      color: var(--gray-1000);
+      display: inline-flex;
+      font-size: 12px;
+      font-weight: 500;
+      line-height: 16px;
       padding: 5px 10px;
       white-space: nowrap;
     }
 
     .panel {
-      background: #ffffff;
-      border: 1px solid #d7dce3;
-      border-radius: 8px;
-      margin-bottom: 14px;
-      padding: 16px;
+      background: var(--background-100);
+      border: 1px solid var(--gray-alpha-400);
+      border-radius: var(--radius-md);
+      margin-bottom: var(--space-4);
+      padding: var(--space-6);
     }
 
-    .panel h3 {
-      color: #3b4656;
+    .panel-title {
+      align-items: center;
+      color: var(--gray-900);
+      display: flex;
+      font-size: 13px;
+      font-weight: 500;
+      justify-content: space-between;
+      line-height: 20px;
+      margin: 0 0 var(--space-3);
+    }
+
+    .panel-body {
+      color: var(--gray-1000);
       font-size: 14px;
-      margin: 0 0 10px;
-    }
-
-    .panel p {
-      font-size: 17px;
-      line-height: 1.7;
-      margin-bottom: 0;
+      line-height: 22px;
+      margin: 0;
       white-space: pre-wrap;
     }
 
-    .subtitle p {
-      color: #0f172a;
-      font-size: 20px;
-      font-weight: 700;
-      line-height: 1.55;
+    .subtitle-panel {
+      border-color: var(--blue-700);
+      background: var(--blue-100);
+    }
+
+    .subtitle-panel .panel-body {
+      color: var(--blue-1000);
+      font-size: 18px;
+      font-weight: 600;
+      line-height: 28px;
+    }
+
+    .metadata-stack {
+      display: grid;
+      gap: var(--space-3);
+      margin-bottom: var(--space-6);
+    }
+
+    .metadata-row {
+      align-items: start;
+      border-bottom: 1px solid var(--gray-alpha-200);
+      display: grid;
+      gap: var(--space-2);
+      grid-template-columns: 76px 1fr;
+      padding-bottom: var(--space-3);
+    }
+
+    .metadata-row:last-child {
+      border-bottom: 0;
+      padding-bottom: 0;
+    }
+
+    .metadata-label {
+      color: var(--gray-900);
+      font-size: 12px;
+      line-height: 16px;
+    }
+
+    .metadata-value {
+      color: var(--gray-1000);
+      font-family: "Geist Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-size: 13px;
+      line-height: 20px;
+      overflow-wrap: anywhere;
+    }
+
+    .field-status {
+      display: grid;
+      gap: var(--space-2);
+      margin: 0 0 var(--space-6);
+      padding: 0;
+    }
+
+    .field-status li,
+    .checks li {
+      list-style: none;
+    }
+
+    .status-item {
+      align-items: center;
+      display: flex;
+      font-size: 13px;
+      gap: var(--space-2);
+      line-height: 20px;
+    }
+
+    .status-dot {
+      border-radius: var(--radius-full);
+      flex: 0 0 8px;
+      height: 8px;
+      width: 8px;
+    }
+
+    .status-ok {
+      background: var(--green-700);
+    }
+
+    .status-missing {
+      background: var(--red-700);
     }
 
     .checks {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 8px;
+      display: grid;
+      gap: var(--space-2);
       margin: 0;
       padding: 0;
     }
 
     .checks li {
-      background: #f1f5f9;
-      border: 1px solid #d9e2ec;
-      border-radius: 999px;
-      list-style: none;
-      padding: 6px 10px;
+      background: var(--background-100);
+      border: 1px solid var(--gray-alpha-400);
+      border-radius: var(--radius-sm);
+      color: var(--gray-1000);
+      font-size: 13px;
+      line-height: 20px;
+      padding: var(--space-2) var(--space-3);
     }
 
-    .error {
-      background: #fff1f2;
-      border: 1px solid #fecdd3;
-      border-radius: 8px;
-      color: #9f1239;
-      padding: 16px;
+    .empty-state,
+    .error-state {
+      border: 1px solid var(--gray-alpha-400);
+      border-radius: var(--radius-md);
+      padding: var(--space-6);
+    }
+
+    .error-state {
+      background: var(--red-100);
+      border-color: var(--red-700);
+      color: var(--red-1000);
+    }
+
+    .error-state ul {
+      margin-bottom: 0;
+      padding-left: var(--space-6);
+    }
+
+    @media (max-width: 1100px) {
+      .workspace-shell {
+        grid-template-columns: minmax(240px, 300px) minmax(0, 1fr);
+      }
+
+      .review-rail {
+        border-left: 0;
+        border-top: 1px solid var(--gray-alpha-400);
+        grid-column: 1 / -1;
+      }
     }
 
     @media (max-width: 760px) {
-      .app {
-        grid-template-columns: 1fr;
+      .workspace-shell {
+        display: block;
       }
 
-      aside {
+      .shot-rail {
         border-right: 0;
-        border-bottom: 1px solid #d7dce3;
-        max-height: 45vh;
+        border-bottom: 1px solid var(--gray-alpha-400);
+        max-height: 46vh;
       }
 
-      main {
-        padding: 20px;
+      .script-panel,
+      .shot-rail,
+      .review-rail {
+        padding: var(--space-4);
       }
 
       .detail-header {
         display: block;
       }
 
-      .badge {
-        margin-top: 8px;
+      .status-pill {
+        margin-top: var(--space-3);
       }
     }
   </style>
 </head>
 <body>
-  <div class="app">
-    <aside>
-      <h1 id="title">分镜字幕查看器</h1>
-      <p class="meta" id="summary">读取 storyboard.json 中...</p>
-      <div class="shot-list" id="shotList"></div>
+  <div class="workspace-shell">
+    <aside class="shot-rail" aria-label="分镜导航">
+      <div class="eyebrow">Storyboard</div>
+      <h1 class="workspace-title" id="title">分镜字幕工作台</h1>
+      <p class="workspace-meta" id="summary">读取 storyboard.json 中...</p>
+      <nav id="shotList" aria-label="分镜列表"></nav>
     </aside>
-    <main>
-      <section class="detail" id="detail"></section>
+
+    <main class="script-panel" id="detail" aria-live="polite">
+      <div class="empty-state">正在读取分镜。</div>
     </main>
+
+    <aside class="review-rail" aria-label="分镜检查">
+      <div class="eyebrow">Review</div>
+      <h2 class="workspace-title">检查面板</h2>
+      <div id="review"></div>
+    </aside>
   </div>
 
   <script>
     const requiredFields = ["id", "scene", "title", "visual", "narration", "subtitle"];
     const shotList = document.querySelector("#shotList");
     const detail = document.querySelector("#detail");
+    const review = document.querySelector("#review");
     const title = document.querySelector("#title");
     const summary = document.querySelector("#summary");
     let shots = [];
@@ -257,63 +485,136 @@
       return findings;
     }
 
+    function groupShotsByScene() {
+      return shots.reduce((groups, shot, index) => {
+        const scene = shot.scene || "unknown";
+        if (!groups.has(scene)) {
+          groups.set(scene, []);
+        }
+        groups.get(scene).push({shot, index});
+        return groups;
+      }, new Map());
+    }
+
     function selectShot(index) {
       activeIndex = index;
       render();
     }
 
-    function render() {
-      shotList.innerHTML = shots.map((shot, index) => `
-        <button class="shot ${index === activeIndex ? "active" : ""}" type="button" data-index="${index}">
-          <span class="shot-id">${escapeHtml(shot.id)}</span>
-          <span class="shot-title">${escapeHtml(shot.title)}</span>
-          <span class="shot-scene">${escapeHtml(shot.scene)} · ${escapeHtml(shot.durationHint || "?")} 秒</span>
-        </button>
+    function renderShotList() {
+      const groups = groupShotsByScene();
+      shotList.innerHTML = Array.from(groups.entries()).map(([scene, items]) => `
+        <section class="scene-group" aria-label="${escapeHtml(scene)}">
+          <div class="scene-label">
+            <span>${escapeHtml(scene)}</span>
+            <span class="scene-count">${items.length} shots</span>
+          </div>
+          <div class="shot-list">
+            ${items.map(({shot, index}) => `
+              <button class="shot-card ${index === activeIndex ? "active" : ""}" type="button" data-index="${index}">
+                <span class="shot-card-id">${escapeHtml(shot.id)}</span>
+                <span class="shot-card-title">${escapeHtml(shot.title)}</span>
+                <span class="shot-card-meta">
+                  <span>${escapeHtml(shot.durationHint || "?")} 秒</span>
+                  <span>${escapeHtml((shot.subtitle || "").length)} 字幕字数</span>
+                </span>
+              </button>
+            `).join("")}
+          </div>
+        </section>
       `).join("");
 
-      shotList.querySelectorAll("button.shot").forEach((button) => {
+      shotList.querySelectorAll("button.shot-card").forEach((button) => {
         button.addEventListener("click", () => selectShot(Number(button.dataset.index)));
       });
+    }
 
-      const shot = shots[activeIndex];
-      const checks = Array.isArray(shot.checks) ? shot.checks : [];
+    function renderDetail(shot) {
       detail.innerHTML = `
         <div class="detail-header">
           <div>
-            <h2>${escapeHtml(shot.title)}</h2>
-            <div class="meta">${escapeHtml(shot.id)} · scene: ${escapeHtml(shot.scene)}</div>
+            <h2 class="detail-title">${escapeHtml(shot.title)}</h2>
+            <div class="detail-meta">${escapeHtml(shot.id)} · ${escapeHtml(shot.scene)}</div>
           </div>
-          <span class="badge">${escapeHtml(shot.durationHint || "?")} 秒</span>
+          <span class="status-pill">${escapeHtml(shot.durationHint || "?")} 秒</span>
         </div>
-        <section class="panel">
-          <h3>画面说明</h3>
-          <p>${escapeHtml(shot.visual)}</p>
+
+        <section class="panel subtitle-panel">
+          <h3 class="panel-title">字幕文本 <span>${escapeHtml((shot.subtitle || "").length)} 字</span></h3>
+          <p class="panel-body">${escapeHtml(shot.subtitle)}</p>
         </section>
+
         <section class="panel">
-          <h3>旁白脚本</h3>
-          <p>${escapeHtml(shot.narration)}</p>
+          <h3 class="panel-title">旁白脚本</h3>
+          <p class="panel-body">${escapeHtml(shot.narration)}</p>
         </section>
-        <section class="panel subtitle">
-          <h3>字幕文本</h3>
-          <p>${escapeHtml(shot.subtitle)}</p>
-        </section>
+
         <section class="panel">
-          <h3>检查点</h3>
-          <ul class="checks">
-            ${checks.map((item) => `<li>${escapeHtml(item)}</li>`).join("") || "<li>未设置</li>"}
-          </ul>
+          <h3 class="panel-title">画面说明</h3>
+          <p class="panel-body">${escapeHtml(shot.visual)}</p>
         </section>
       `;
+    }
+
+    function renderReview(shot) {
+      const checks = Array.isArray(shot.checks) ? shot.checks : [];
+      review.innerHTML = `
+        <div class="metadata-stack">
+          <div class="metadata-row">
+            <span class="metadata-label">分镜</span>
+            <span class="metadata-value">${escapeHtml(shot.id)}</span>
+          </div>
+          <div class="metadata-row">
+            <span class="metadata-label">场景</span>
+            <span class="metadata-value">${escapeHtml(shot.scene)}</span>
+          </div>
+          <div class="metadata-row">
+            <span class="metadata-label">预计</span>
+            <span class="metadata-value">${escapeHtml(shot.durationHint || "?")} 秒</span>
+          </div>
+        </div>
+
+        <h3 class="panel-title">字段状态</h3>
+        <ul class="field-status">
+          ${requiredFields.map((field) => {
+            const ok = typeof shot[field] === "string" && shot[field].trim() !== "";
+            return `
+              <li class="status-item">
+                <span class="status-dot ${ok ? "status-ok" : "status-missing"}"></span>
+                <span>${escapeHtml(field)}：${ok ? "已填写" : "缺失"}</span>
+              </li>
+            `;
+          }).join("")}
+        </ul>
+
+        <h3 class="panel-title">检查点</h3>
+        <ul class="checks">
+          ${checks.map((item) => `<li>${escapeHtml(item)}</li>`).join("") || "<li>未设置检查点</li>"}
+        </ul>
+      `;
+    }
+
+    function render() {
+      if (!shots.length) {
+        detail.innerHTML = '<div class="empty-state">没有可显示的分镜。</div>';
+        review.innerHTML = "";
+        return;
+      }
+      const shot = shots[activeIndex];
+      renderShotList();
+      renderDetail(shot);
+      renderReview(shot);
     }
 
     function showError(message, findings = []) {
       summary.textContent = "读取失败";
       detail.innerHTML = `
-        <div class="error">
+        <div class="error-state">
           <strong>${escapeHtml(message)}</strong>
           ${findings.length ? `<ul>${findings.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ul>` : ""}
         </div>
       `;
+      review.innerHTML = "";
     }
 
     fetch("storyboard.json", {cache: "no-store"})
@@ -329,9 +630,9 @@
           showError("storyboard.json 校验失败", findings);
           return;
         }
-        title.textContent = data.title || "分镜字幕查看器";
+        title.textContent = data.title || "分镜字幕工作台";
         shots = data.shots;
-        summary.textContent = `${shots.length} 个分镜`;
+        summary.textContent = `${shots.length} 个分镜 · ${groupShotsByScene().size} 个场景`;
         render();
       })
       .catch((error) => {
