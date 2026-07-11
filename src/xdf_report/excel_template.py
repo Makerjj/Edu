@@ -10,6 +10,7 @@ CLASSROOM_PERFORMANCE_END_COL = 5
 THREE_STAR_TEXT = "🌟🌟🌟"
 ATTENDANCE_COL = 2
 ATTENDANCE_CHECKMARK = "✅"
+STUDENT_ROW_HEIGHT = 28
 
 
 def _copy_row_style(sheet, source_row: int, target_row: int, max_col: int) -> None:
@@ -84,6 +85,11 @@ def _write_attendance_region(sheet, student_start_row: int, rows) -> None:
         sheet.cell(target_row, ATTENDANCE_COL).value = ATTENDANCE_CHECKMARK
 
 
+def _set_student_row_heights(sheet, student_start_row: int, rows) -> None:
+    for offset, _row in enumerate(rows):
+        sheet.row_dimensions[student_start_row + offset].height = STUDENT_ROW_HEIGHT
+
+
 def render_report(request, problems, after_class_problems, rows, output_path: Path) -> None:
     workbook = load_workbook(request.template_path)
     template_sheet = workbook[workbook.sheetnames[-1]]
@@ -129,6 +135,11 @@ def render_report(request, problems, after_class_problems, rows, output_path: Pa
         rows=rows,
     )
     _write_attendance_region(
+        sheet=sheet,
+        student_start_row=student_start_row,
+        rows=rows,
+    )
+    _set_student_row_heights(
         sheet=sheet,
         student_start_row=student_start_row,
         rows=rows,

@@ -79,6 +79,34 @@ def test_render_report_writes_expected_cells_from_template(tmp_path: Path) -> No
     assert sheet["M4"].value is None
 
 
+def test_render_report_sets_student_rows_to_readable_height(tmp_path: Path) -> None:
+    output_path = tmp_path / "result.xlsx"
+    problems = [Problem(problem_id="P1001", title="找苹果")]
+    rows = [
+        StudentProgress(
+            student=Student(uid="u1", username="s1", nickname="学生1"),
+            completion_by_problem={"P1001": "✅"},
+        ),
+        StudentProgress(
+            student=Student(uid="u2", username="s2", nickname="学生2"),
+            completion_by_problem={"P1001": ""},
+        ),
+    ]
+
+    render_report(
+        request=_make_request(tmp_path, ["找苹果"]),
+        problems=problems,
+        after_class_problems=[],
+        rows=rows,
+        output_path=output_path,
+    )
+
+    sheet = load_workbook(output_path)["结果"]
+
+    assert sheet.row_dimensions[3].height == 28
+    assert sheet.row_dimensions[4].height == 28
+
+
 def test_render_report_extends_students_beyond_top_sample_block(tmp_path: Path) -> None:
     output_path = tmp_path / "result.xlsx"
     problems = [Problem(problem_id="P1001", title="找苹果")]
