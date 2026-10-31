@@ -8,7 +8,9 @@ import json
 import mimetypes
 import os
 import sqlite3
+import subprocess
 import sys
+import tempfile
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
@@ -16,6 +18,9 @@ from http.cookies import SimpleCookie
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, quote, urlparse
+
+from openpyxl import load_workbook
+from openpyxl.cell.cell import MergedCell
 
 ROOT = Path(__file__).resolve().parent
 PROJECT_ROOT = ROOT.parent
@@ -28,6 +33,7 @@ from src.xdf_report.cli import (
     _extract_student_code,
     _load_rank_records,
     _load_students_from_json,
+    _load_teams,
     _load_students,
     _load_problems,
     _load_trainings,
@@ -40,11 +46,11 @@ from src.xdf_report.cli import (
 )
 from src.xdf_report.config import load_config
 from src.xdf_report.excel_template import render_report
-from src.xdf_report.matcher import MatchError
+from src.xdf_report.matcher import MatchError, match_problem_queries
 from src.xdf_report.models import Problem, ReportRequest, Team, Training
 from src.xdf_report.report_data import build_progress_rows
 from src.agent_studio.service import AGENT_TOOL_REGISTRY, create_agent_run, list_agent_runs
-from src.problem_bank.service import ProblemBankSearch, search_problem_bank
+from src.problem_bank.service import ProblemBankSearch, search_local_problem_bank, search_problem_bank
 
 
 @dataclass
@@ -53,27 +59,31 @@ class UserSession:
     user_id: int
     account: str
     client: OJClient
+    remember: bool = False
     teams: list[dict] | None = None
     trainings_by_team: dict[int, list[dict]] = field(default_factory=dict)
     students_by_team: dict[int, list[dict]] = field(default_factory=dict)
     problems_by_training: dict[tuple[int, str], list[dict]] = field(default_factory=dict)
+    reports: dict[str, dict] = field(default_factory=dict)
+    downloads: dict[str, Path] = field(default_factory=dict)
 
 
 class AppState:
     config = None
     sessions: dict[str, UserSession] = {}
-    downloads: dict[str, Path] = {}
 
 
 state = AppState()
 COOKIE_NAME = "teaching_toolbox_session"
-COOKIE_MAX_AGE = 60 * 60 * 24 * 7
+COOKIE_MAX_AGE = 60 * 60 * 24 * 365
 DATA_DIR = ROOT / ".data"
 DB_PATH = DATA_DIR / "toolbox.sqlite3"
 SECRET_KEY_PATH = DATA_DIR / "secret.key"
 AGENT_RUNS_DIR = ROOT / ".agent_runs"
+CODEX_BIN = "/opt/homebrew/bin/codex"
+FEEDBACK_SKILL_PATH = PROJECT_ROOT.parent / "skills" / "after-class-feedback" / "SKILL.md"
 SHORT_SESSION_AGE = timedelta(hours=12)
-REMEMBER_SESSION_AGE = timedelta(days=7)
+REMEMBER_SESSION_AGE = timedelta(days=365)
 
 
 def get_config():
@@ -213,7 +223,7 @@ def create_session(
     init_db()
     session_id = uuid.uuid4().hex
     now = utc_now()
-    expires_at = now + (REMEMBER_SESSION_AGE if remember else SHORT_SESSION_AGE)
+    expires_at = session_expires_at(now, remember)
     with db_connect() as conn:
         conn.execute(
             """
@@ -237,8 +247,28 @@ def create_session(
         user_id=user_id,
         account=account,
         client=OJClient(oj_token),
+        remember=remember,
     )
     return session_id
+
+
+def session_expires_at(now: datetime, remember: bool) -> datetime:
+    return now + (REMEMBER_SESSION_AGE if remember else SHORT_SESSION_AGE)
+
+
+def touch_session_with_connection(
+    conn: sqlite3.Connection, session_id: str, now: datetime, remember: bool
+) -> None:
+    if remember:
+        conn.execute(
+            "UPDATE sessions SET last_seen_at = ?, expires_at = ? WHERE session_id = ?",
+            (utc_iso(now), utc_iso(session_expires_at(now, True)), session_id),
+        )
+    else:
+        conn.execute(
+            "UPDATE sessions SET last_seen_at = ? WHERE session_id = ?",
+            (utc_iso(now), session_id),
+        )
 
 
 def restore_session(session_id: str | None) -> UserSession | None:
@@ -257,7 +287,8 @@ def restore_session(session_id: str | None) -> UserSession | None:
     with db_connect() as conn:
         row = conn.execute(
             """
-            SELECT sessions.session_id, sessions.user_id, sessions.oj_token, sessions.expires_at,
+            SELECT sessions.session_id, sessions.user_id, sessions.oj_token,
+                   sessions.remember, sessions.expires_at,
                    users.account
             FROM sessions
             JOIN users ON users.id = sessions.user_id
@@ -270,42 +301,66 @@ def restore_session(session_id: str | None) -> UserSession | None:
         if parse_utc(str(row["expires_at"])) <= now:
             conn.execute("DELETE FROM sessions WHERE session_id = ?", (session_id,))
             return None
-        conn.execute(
-            "UPDATE sessions SET last_seen_at = ? WHERE session_id = ?",
-            (utc_iso(now), session_id),
-        )
+        touch_session_with_connection(conn, session_id, now, bool(row["remember"]))
 
     restored = UserSession(
         session_id=str(row["session_id"]),
         user_id=int(row["user_id"]),
         account=str(row["account"]),
         client=OJClient(str(row["oj_token"])),
+        remember=bool(row["remember"]),
     )
     state.sessions[session_id] = restored
     return restored
 
 
+def restore_latest_remembered_session() -> UserSession | None:
+    init_db()
+    now = utc_iso(utc_now())
+    with db_connect() as conn:
+        row = conn.execute(
+            """
+            SELECT session_id
+            FROM sessions
+            WHERE remember = 1 AND expires_at > ?
+            ORDER BY last_seen_at DESC, id DESC
+            LIMIT 1
+            """,
+            (now,),
+        ).fetchone()
+    if row is None:
+        return None
+    return restore_session(str(row["session_id"]))
+
+
 def touch_session(session_id: str) -> None:
     init_db()
+    now = utc_now()
     with db_connect() as conn:
-        conn.execute(
-            "UPDATE sessions SET last_seen_at = ? WHERE session_id = ?",
-            (utc_iso(utc_now()), session_id),
-        )
+        row = conn.execute(
+            "SELECT remember FROM sessions WHERE session_id = ?",
+            (session_id,),
+        ).fetchone()
+        if row is None:
+            return
+        touch_session_with_connection(conn, session_id, now, bool(row["remember"]))
 
 
 def session_is_valid(session_id: str) -> bool:
     init_db()
+    now = utc_now()
     with db_connect() as conn:
         row = conn.execute(
-            "SELECT expires_at FROM sessions WHERE session_id = ?",
+            "SELECT expires_at, remember FROM sessions WHERE session_id = ?",
             (session_id,),
         ).fetchone()
         if row is None:
             return False
-        if parse_utc(str(row["expires_at"])) <= utc_now():
+        if parse_utc(str(row["expires_at"])) <= now:
             conn.execute("DELETE FROM sessions WHERE session_id = ?", (session_id,))
             return False
+        if bool(row["remember"]):
+            touch_session_with_connection(conn, session_id, now, True)
     return True
 
 
@@ -431,7 +486,17 @@ def list_teams(session: UserSession) -> list[dict]:
     if session.teams is not None:
         return session.teams
 
-    teams = _scan_teams_by_name(session.client, "", 5000, 25)
+    try:
+        teams = _load_teams(session.client, "")
+        if not teams:
+            renew_session_token(session)
+            teams = _load_teams(session.client, "")
+    except OJApiError:
+        try:
+            renew_session_token(session)
+            teams = _load_teams(session.client, "")
+        except OJApiError:
+            teams = _scan_teams_by_name(session.client, "", 5000, 25)
     session.teams = [
         {"groupId": team.group_id, "name": team.name}
         for team in sorted(teams, key=lambda item: item.group_id)
@@ -440,12 +505,11 @@ def list_teams(session: UserSession) -> list[dict]:
 
 
 def list_trainings(session: UserSession, group_id: int) -> list[dict]:
-    if group_id not in session.trainings_by_team:
-        trainings = _load_trainings(session.client, group_id)
-        session.trainings_by_team[group_id] = [
-            {"trainingId": training.training_id, "title": training.title}
-            for training in trainings
-        ]
+    trainings = _load_trainings(session.client, group_id)
+    session.trainings_by_team[group_id] = [
+        {"trainingId": training.training_id, "title": training.title}
+        for training in trainings
+    ]
     return session.trainings_by_team[group_id]
 
 
@@ -530,6 +594,325 @@ def list_saved_students(group_id: int) -> dict:
         "students": students,
         "count": len(students),
     }
+
+
+def decode_feedback_image(payload: dict) -> tuple[bytes, str]:
+    image_data = str(payload.get("imageData") or "").strip()
+    if not image_data.startswith("data:image/") or ";base64," not in image_data:
+        raise MatchError("请上传图片截图")
+    header, encoded = image_data.split(",", 1)
+    image_type = header.split(";", 1)[0].split("/", 1)[-1].lower()
+    if image_type not in {"png", "jpeg", "jpg", "webp"}:
+        raise MatchError("仅支持 PNG、JPG 或 WebP 图片")
+    try:
+        image_bytes = base64.b64decode(encoded, validate=True)
+    except ValueError as exc:
+        raise MatchError("图片内容解析失败，请重新上传") from exc
+    if not image_bytes:
+        raise MatchError("图片内容为空，请重新上传")
+    return image_bytes, "jpg" if image_type == "jpeg" else image_type
+
+
+def _parse_codex_summary(raw_output: str) -> dict:
+    text = raw_output.strip()
+    try:
+        payload = json.loads(text)
+    except json.JSONDecodeError as exc:
+        raise MatchError("Codex agent 没有返回可解析的总结，请重试") from exc
+    topic = str(payload.get("topic") or "").strip()
+    knowledge_points = str(payload.get("knowledgePoints") or "").strip()
+    summary = str(payload.get("summary") or "").strip()
+    if not topic and not knowledge_points:
+        raise MatchError("Codex agent 没有识别出课程主题或知识点，请换一张截图")
+    return {
+        "topic": topic,
+        "knowledgePoints": knowledge_points,
+        "summary": summary,
+    }
+
+
+def _parse_feedback_check(raw_output: str) -> dict:
+    text = raw_output.strip()
+    try:
+        payload = json.loads(text)
+    except json.JSONDecodeError as exc:
+        raise MatchError("Codex agent 没有返回可解析的检查结果，请重试") from exc
+    status = str(payload.get("status") or "needs_review").strip()
+    issues = payload.get("issues") or []
+    suggestions = payload.get("suggestions") or []
+    if not isinstance(issues, list) or not isinstance(suggestions, list):
+        raise MatchError("Codex agent 检查结果格式不正确，请重试")
+    normalized_issues = []
+    for issue in issues:
+        if not isinstance(issue, dict):
+            continue
+        normalized_issues.append(
+            {
+                "type": str(issue.get("type") or "other").strip(),
+                "severity": str(issue.get("severity") or "medium").strip(),
+                "message": str(issue.get("message") or "").strip(),
+                "quote": str(issue.get("quote") or "").strip(),
+                "suggestion": str(issue.get("suggestion") or "").strip(),
+            }
+        )
+    return {
+        "status": status,
+        "issues": normalized_issues,
+        "suggestions": [str(item).strip() for item in suggestions if str(item).strip()],
+        "summary": str(payload.get("summary") or "").strip(),
+    }
+
+
+def _parse_generated_feedback(raw_output: str) -> dict:
+    feedback = raw_output.strip()
+    if not feedback:
+        raise MatchError("Codex agent 没有返回反馈内容，请重试")
+    return {"feedback": feedback}
+
+
+def _parse_revised_feedback(raw_output: str) -> dict:
+    text = raw_output.strip()
+    try:
+        payload = json.loads(text)
+    except json.JSONDecodeError as exc:
+        raise MatchError("Codex agent 没有返回可解析的修改结果，请重试") from exc
+    feedback = str(payload.get("feedback") or "").strip()
+    message = str(payload.get("message") or "已按你的要求修改反馈。").strip()
+    if not feedback:
+        raise MatchError("Codex agent 没有返回修改后的反馈，请重试")
+    return {"feedback": feedback, "message": message}
+
+
+def _walk_text_values(value) -> list[str]:
+    if isinstance(value, str):
+        return [value]
+    if isinstance(value, list):
+        texts: list[str] = []
+        for item in value:
+            texts.extend(_walk_text_values(item))
+        return texts
+    if isinstance(value, dict):
+        texts: list[str] = []
+        for item in value.values():
+            texts.extend(_walk_text_values(item))
+        return texts
+    return []
+
+
+def load_feedback_skill_excerpt(limit: int = 4500) -> str:
+    try:
+        return FEEDBACK_SKILL_PATH.read_text(encoding="utf-8")[:limit].strip()
+    except OSError:
+        return ""
+
+
+def check_feedback_text_with_codex(payload: dict) -> dict:
+    feedback = str(payload.get("feedback") or "").strip()
+    if not feedback:
+        raise MatchError("请先生成或填写要检查的反馈")
+    student_name = str(payload.get("studentName") or "").strip()
+    username = str(payload.get("username") or "").strip()
+    topic = str(payload.get("topic") or "").strip()
+    level = str(payload.get("level") or "").strip()
+    skill_excerpt = load_feedback_skill_excerpt()
+    prompt = (
+        "你是课后反馈质检员。请严格检查下面这条中文课后反馈是否存在错误。"
+        "你必须参考 after-class-feedback skill 的规则和检查清单。"
+        "重点检查：真实学生名泄露、把别的学生名字写进反馈、家长称呼错误、"
+        "错别字、语病、标点异常、占位符错误、课程知识点不一致、"
+        "没有证据的课堂表现或作业完成情况、夸张评价、直接否定孩子能力、"
+        "表现等级和文案语气不匹配、反馈结构缺失、重复啰嗦。"
+        "只返回 JSON，不要输出解释。"
+        "JSON 格式："
+        '{"status":"ok|needs_fix|needs_review",'
+        '"issues":[{"type":"name|typo|fact|tone|placeholder|structure|level|other",'
+        '"severity":"low|medium|high","message":"问题说明","quote":"原文片段","suggestion":"修改建议"}],'
+        '"suggestions":["整体修改建议"],"summary":"一句话检查结论"}。'
+        "\n\n学生信息："
+        f"\n- studentName: {student_name or '未提供'}"
+        f"\n- username: {username or '未提供'}"
+        f"\n- topic: {topic or '未提供'}"
+        f"\n- level: {level or '未提供'}"
+        f"\n\n反馈正文：\n{feedback}"
+        f"\n\n参考 skill：\n{skill_excerpt}"
+    )
+    try:
+        result = subprocess.run(
+            [
+                CODEX_BIN,
+                "exec",
+                "--skip-git-repo-check",
+                "-",
+            ],
+            check=True,
+            capture_output=True,
+            text=True,
+            input=prompt,
+            timeout=120,
+        )
+    except subprocess.CalledProcessError as exc:
+        detail = (exc.stderr or exc.stdout or "").strip()
+        if not detail:
+            detail = f"codex exec 退出码 {exc.returncode}"
+        raise MatchError(f"Codex agent 检查失败：{detail}") from exc
+    except subprocess.TimeoutExpired as exc:
+        raise MatchError("Codex agent 检查超时，请稍后重试") from exc
+    return _parse_feedback_check(result.stdout)
+
+
+def generate_feedback_with_codex(payload: dict) -> dict:
+    student_name = str(payload.get("studentName") or "").strip()
+    username = str(payload.get("username") or "").strip()
+    details = str(payload.get("details") or "").strip()
+    level = str(payload.get("level") or "").strip() or "中等"
+    dimensions = payload.get("dimensions")
+    if not isinstance(dimensions, dict) or not dimensions:
+        raise MatchError("请先选择学生表现维度")
+
+    skill_excerpt = load_feedback_skill_excerpt()
+    prompt = (
+        "你是编程课后反馈助手。请根据学生表现维度和课堂细节描述，"
+        "为家长生成一段自然、真实、可直接发送的中文私人反馈。"
+        "你必须参考 after-class-feedback skill 的规则。"
+        "课堂内容反馈与学生私人反馈是两个独立对象。"
+        "本次只生成学生私人反馈，不复述课程主题，不列知识点清单，"
+        "也不得因为没有上传课堂截图而拒绝生成。"
+        "课堂细节描述属于用户明确提供的学生表现证据，生成时优先使用；"
+        "只润色和组织这些细节，不得补写细节中没有出现的课堂事实。"
+        "只使用 include=true 的维度；include=false 的维度只作为背景，不写进最终反馈。"
+        "不要编造课堂互动、作业完成情况、点名表扬或额外事实。"
+        "直接输出反馈正文，不要输出 JSON，不要加解释。"
+        "反馈必须包含 #沟通称呼语# 和 #学员昵称#。"
+        "\n\n学生信息："
+        f"\n- studentName: {student_name or '未提供'}"
+        f"\n- username: {username or '未提供'}"
+        f"\n- level: {level}"
+        f"\n- details: {details or '未提供'}"
+        f"\n\n维度原始数据(JSON)：\n{json.dumps(dimensions, ensure_ascii=False, indent=2)}"
+        f"\n\n参考 skill：\n{skill_excerpt}"
+    )
+    try:
+        result = subprocess.run(
+            [
+                CODEX_BIN,
+                "exec",
+                "--skip-git-repo-check",
+                "-",
+            ],
+            check=True,
+            capture_output=True,
+            text=True,
+            input=prompt,
+            timeout=120,
+        )
+    except subprocess.CalledProcessError as exc:
+        detail = (exc.stderr or exc.stdout or "").strip()
+        if not detail:
+            detail = f"codex exec 退出码 {exc.returncode}"
+        raise MatchError(f"Codex agent 生成失败：{detail}") from exc
+    except subprocess.TimeoutExpired as exc:
+        raise MatchError("Codex agent 生成超时，请稍后重试") from exc
+    return _parse_generated_feedback(result.stdout)
+
+
+def revise_feedback_with_codex(payload: dict) -> dict:
+    feedback = str(payload.get("feedback") or "").strip()
+    instruction = str(payload.get("instruction") or "").strip()
+    details = str(payload.get("details") or "").strip()
+    level = str(payload.get("level") or "").strip() or "中等"
+    dimensions = payload.get("dimensions") or {}
+    if not feedback:
+        raise MatchError("请先生成或填写反馈")
+    if not instruction:
+        raise MatchError("请填写你希望怎样修改")
+
+    skill_excerpt = load_feedback_skill_excerpt()
+    prompt = (
+        "你是正在网页里与老师沟通的课后反馈修改助手。"
+        "请根据老师本轮提出的修改要求，修改现有的学生私人反馈。"
+        "你必须参考 after-class-feedback skill，保留事实边界，不能新增未提供的课堂表现。"
+        "课堂内容反馈与私人反馈分开，本次只修改私人反馈。"
+        "所有学生姓名继续使用 #学员昵称#，家长称呼使用 #沟通称呼语#。"
+        "只返回 JSON，不要输出 JSON 以外的文字。"
+        'JSON 格式：{"message":"简短说明本次怎样修改", "feedback":"修改后的完整反馈"}。'
+        f"\n\n老师的修改要求：\n{instruction}"
+        f"\n\n现有反馈：\n{feedback}"
+        f"\n\n已知课堂细节：\n{details or '未提供'}"
+        f"\n\n表现等级：{level}"
+        f"\n表现维度(JSON)：\n{json.dumps(dimensions, ensure_ascii=False, indent=2)}"
+        f"\n\n参考 skill：\n{skill_excerpt}"
+    )
+    try:
+        result = subprocess.run(
+            [CODEX_BIN, "exec", "--skip-git-repo-check", "-"],
+            check=True,
+            capture_output=True,
+            text=True,
+            input=prompt,
+            timeout=120,
+        )
+    except subprocess.CalledProcessError as exc:
+        detail = (exc.stderr or exc.stdout or "").strip()
+        if not detail:
+            detail = f"codex exec 退出码 {exc.returncode}"
+        raise MatchError(f"Codex agent 修改失败：{detail}") from exc
+    except subprocess.TimeoutExpired as exc:
+        raise MatchError("Codex agent 修改超时，请稍后重试") from exc
+    return _parse_revised_feedback(result.stdout)
+
+
+def summarize_feedback_image_with_codex(payload: dict) -> dict:
+    image_bytes, image_type = decode_feedback_image(payload)
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        input_path = Path(tmp_dir) / f"lesson-shot.{image_type}"
+        input_path.write_bytes(image_bytes)
+        skill_excerpt = load_feedback_skill_excerpt()
+        prompt = (
+            "你是编程课后反馈助手。请观察这张课堂截图，总结本节课的课程主题，"
+            "并生成可直接放进家长课后反馈里的完整知识点反馈文本。"
+            "你必须参考本地课后反馈写作 skill 的风格和结构来写课堂内容反馈。"
+            "不要做 OCR 原文转写，不要输出解释，只返回 JSON。"
+            "JSON 格式必须是："
+            '{"topic":"课程主题",'
+            '"knowledgePoints":"完整知识点反馈文本",'
+            '"summary":"一句话概括本节课内容"}。'
+            "knowledgePoints 字段必须写成完整课堂内容反馈，参考这个结构："
+            "#沟通称呼语#～本周课程主要讲了……这一模块内容，帮助学生理解……。\\n\\n"
+            "本节课主要内容如下：\\n"
+            "1. ……\\n2. ……\\n3. ……\\n\\n"
+            "本节课的重难点是：\\n"
+            "1. ……\\n2. ……\\n\\n"
+            "课后可以重点复习：\\n"
+            "1. ……\\n2. ……。"
+            "要求：使用截图中的真实课程内容；不要输出孩子表现分档；"
+            "不编造课堂表现、点名表扬或作业完成情况；"
+            "所有学生姓名用 #学员昵称#，家长称呼用 #沟通称呼语#。"
+            f"\n\n参考本地课后反馈写作 skill：\n{skill_excerpt}"
+        )
+        try:
+            result = subprocess.run(
+                [
+                    CODEX_BIN,
+                    "exec",
+                    "--skip-git-repo-check",
+                    "--image",
+                    str(input_path),
+                    "-",
+                ],
+                check=True,
+                capture_output=True,
+                text=True,
+                input=prompt,
+                timeout=120,
+            )
+        except subprocess.CalledProcessError as exc:
+            detail = (exc.stderr or exc.stdout or "").strip()
+            if not detail:
+                detail = f"codex exec 退出码 {exc.returncode}"
+            raise MatchError(f"Codex agent 总结失败：{detail}") from exc
+        except subprocess.TimeoutExpired as exc:
+            raise MatchError("Codex agent 总结超时，请稍后重试") from exc
+    return _parse_codex_summary(result.stdout)
 
 
 def list_problems(
@@ -634,8 +1017,9 @@ def generate_report(session: UserSession, payload: dict) -> dict:
     group_id = int(payload.get("teamId") or payload.get("team") or 0)
     training_id = int(payload.get("trainingId") or payload.get("training") or 0)
     training_password = str(payload.get("trainingPassword") or "").strip()
+    homework_only = payload.get("homeworkOnly") is True
     students_json = str(payload.get("studentsJson") or "").strip()
-    problem_titles = [
+    problem_queries = [
         str(value).strip()
         for value in payload.get("problems", [])
         if str(value).strip()
@@ -645,12 +1029,17 @@ def generate_report(session: UserSession, payload: dict) -> dict:
         for value in payload.get("afterClassProblems", [])
         if str(value).strip()
     ]
+    absent_student_uids = {
+        str(value).strip()
+        for value in payload.get("absentStudentUids", [])
+        if str(value).strip()
+    }
     if not group_id:
         raise MatchError("请选择团队")
     if not training_id:
         raise MatchError("请选择训练")
-    if not problem_titles:
-        raise MatchError("请至少选择一道课堂题目")
+    if not problem_queries:
+        raise MatchError("请至少选择一道作业题目" if homework_only else "请至少选择一道课堂题目")
 
     config = get_config()
     if not config.template_path.exists():
@@ -660,11 +1049,10 @@ def generate_report(session: UserSession, payload: dict) -> dict:
     training = _find_training(session, group_id, training_id)
     current_problem_payloads = list_problems(session, training_id, training_password)
     current_problems = [_problem_from_payload(item) for item in current_problem_payloads]
-    selected_problems = [
-        problem for problem in current_problems if problem.title in set(problem_titles)
-    ]
-    if len(selected_problems) != len(set(problem_titles)):
-        raise MatchError("部分课堂题目不在当前训练中，请重新选择")
+    try:
+        selected_problems = match_problem_queries(current_problems, problem_queries)
+    except MatchError as exc:
+        raise MatchError(f"部分课堂题目不在当前训练中，请重新选择: {exc}") from exc
 
     trainings = [
         Training(training_id=int(item["trainingId"]), title=str(item["title"]))
@@ -679,13 +1067,13 @@ def generate_report(session: UserSession, payload: dict) -> dict:
             )
         except PermissionError:
             previous_problem_payloads = []
-    after_lookup = {
-        item["title"]: _problem_from_payload(item)
-        for item in previous_problem_payloads
-    }
-    after_class_problems = [
-        after_lookup[title] for title in after_class_titles if title in after_lookup
-    ]
+    previous_problems = [_problem_from_payload(item) for item in previous_problem_payloads]
+    after_class_problems: list[Problem] = []
+    for query in after_class_titles:
+        try:
+            after_class_problems.extend(match_problem_queries(previous_problems, [query]))
+        except MatchError:
+            continue
 
     if students_json:
         students_path = Path(students_json)
@@ -699,7 +1087,8 @@ def generate_report(session: UserSession, payload: dict) -> dict:
     if after_class_problems and previous_training is not None:
         after_class_rank_records = _load_rank_records(session.client, previous_training.training_id)
 
-    download_dir = ROOT / ".generated"
+    report_id = uuid.uuid4().hex
+    download_dir = ROOT / ".generated" / report_id
     download_dir.mkdir(parents=True, exist_ok=True)
     request = ReportRequest(
         team_name=team.name,
@@ -708,24 +1097,109 @@ def generate_report(session: UserSession, payload: dict) -> dict:
         template_path=config.template_path,
         output_dir=download_dir,
         after_class_problem_queries=[problem.title for problem in after_class_problems],
+        homework_only=homework_only,
     )
     output_path = build_output_path(request)
     rows = build_progress_rows(
         students,
         selected_problems,
         rank_records,
-        after_class_problems=after_class_problems,
+        after_class_problems=[] if homework_only else after_class_problems,
         after_class_rank_records=after_class_rank_records,
+        absent_student_uids=set() if homework_only else absent_student_uids,
     )
     render_report(
         request=request,
         problems=selected_problems,
-        after_class_problems=after_class_problems,
+        after_class_problems=[] if homework_only else after_class_problems,
         rows=rows,
         output_path=output_path,
     )
     download_id = uuid.uuid4().hex
-    state.downloads[download_id] = output_path
+    preview = read_report_preview(output_path, len(rows))
+    session.reports[report_id] = {"path": output_path, "cells": preview}
+    session.downloads[download_id] = output_path
+    return {
+        "reportId": report_id,
+        "title": f"{team.name} · {training.title}",
+        "cells": preview,
+        "downloadUrl": f"/api/downloads/{download_id}",
+        "filename": output_path.name,
+    }
+
+
+def read_report_preview(output_path: Path, student_count: int) -> list[list[dict | None]]:
+    workbook = load_workbook(output_path)
+    try:
+        sheet = workbook.active
+        end_row = student_count + 2
+        end_col = max(
+            (cell.column for row in sheet.iter_rows(max_row=end_row)
+             for cell in row if cell.value is not None),
+            default=1,
+        )
+        merged = {item.start_cell.coordinate: item for item in sheet.merged_cells.ranges}
+        visible_columns = [
+            col for col in range(1, end_col + 1)
+            if any(sheet.cell(row, col).value is not None for row in range(1, end_row + 1))
+        ] or [1]
+        preview = []
+        for row_index in range(1, end_row + 1):
+            cells = []
+            for col in visible_columns:
+                cell = sheet.cell(row_index, col)
+                if isinstance(cell, MergedCell):
+                    cells.append(None)
+                    continue
+                span = merged.get(cell.coordinate)
+                cells.append({
+                    "coordinate": cell.coordinate,
+                    "value": "" if cell.value is None else str(cell.value),
+                    "rowSpan": min(span.max_row, end_row) - cell.row + 1 if span else 1,
+                    "colSpan": sum(cell.column <= col <= span.max_col for col in visible_columns) if span else 1,
+                    "editable": cell.row >= 3,
+                })
+            preview.append(cells)
+        return preview
+    finally:
+        workbook.close()
+
+
+def export_report(session: UserSession, payload: dict) -> dict:
+    report = session.reports.get(str(payload.get("reportId") or ""))
+    if report is None:
+        raise MatchError("学情表已过期，请重新生成。")
+    edits = payload.get("edits", {})
+    if not isinstance(edits, dict):
+        raise MatchError("表格修改内容格式有误。")
+    editable = {
+        cell["coordinate"] for row in report["cells"]
+        for cell in row if cell and cell["editable"]
+    }
+    for coordinate, value in edits.items():
+        if coordinate not in editable:
+            raise MatchError("请修改学生数据区域内的单元格。")
+        if not isinstance(value, str) or len(value) > 2000:
+            raise MatchError("单元格内容须为文本，长度上限为 2000 字。")
+        if any(ord(char) < 32 and char not in "\t\n\r" for char in value):
+            raise MatchError("单元格内容含有无效字符。")
+    workbook = load_workbook(report["path"])
+    try:
+        sheet = workbook.active
+        for coordinate, value in edits.items():
+            cell = sheet[coordinate]
+            cell.value = value or None
+            # 网页输入按文本写入，避免以等号开头的内容成为公式。
+            if value:
+                cell.data_type = "s"
+        download_id = uuid.uuid4().hex
+        export_dir = report["path"].parent / download_id
+        export_dir.mkdir()
+        output_path = export_dir / report["path"].name
+        workbook.save(output_path)
+    finally:
+        workbook.close()
+    session.downloads[download_id] = output_path
     return {"downloadUrl": f"/api/downloads/{download_id}", "filename": output_path.name}
 
 
@@ -812,13 +1286,20 @@ class TeachingToolboxHandler(BaseHTTPRequestHandler):
             if parsed.path == "/api/me":
                 session = restore_session(self.current_session_id())
                 if session is None:
+                    session = restore_latest_remembered_session()
+                if session is None:
                     self.write_json({"loggedIn": False})
                 else:
                     self.write_json(
                         {
                             "loggedIn": True,
                             "account": mask_account(session.account),
-                        }
+                        },
+                        cookies=(
+                            [self._session_cookie_value(session.session_id, True)]
+                            if session.remember
+                            else None
+                        ),
                     )
                 return
             if parsed.path == "/api/teams":
@@ -882,31 +1363,19 @@ class TeachingToolboxHandler(BaseHTTPRequestHandler):
                 )
                 return
             if parsed.path == "/api/problem-bank/search":
-                session = self.current_session()
                 query = parse_qs(parsed.query)
                 search_query = query.get("query", [""])[0]
                 limit = int(query.get("limit", ["8"])[0] or 8)
-                include_detail = query.get("includeDetail", ["1"])[0] != "0"
                 self.write_json(
-                    run_with_oj_retry(
-                        session,
-                        lambda: search_problem_bank(
-                            session.client,
-                            ProblemBankSearch(
-                                query=search_query,
-                                limit=limit,
-                                include_detail=include_detail,
-                            ),
-                        ),
+                    search_local_problem_bank(
+                        ProblemBankSearch(query=search_query, limit=limit)
                     )
                 )
                 return
             if parsed.path == "/api/agent/tools":
-                self.current_session()
                 self.write_json({"tools": AGENT_TOOL_REGISTRY})
                 return
             if parsed.path == "/api/agent/runs":
-                self.current_session()
                 self.write_json({"runs": list_agent_runs(AGENT_RUNS_DIR)})
                 return
             if parsed.path.startswith("/api/downloads/"):
@@ -957,6 +1426,10 @@ class TeachingToolboxHandler(BaseHTTPRequestHandler):
                     run_with_oj_retry(session, lambda: generate_report(session, payload))
                 )
                 return
+            if parsed.path == "/api/reports/export":
+                session = self.current_session()
+                self.write_json(export_report(session, self.read_json_body()))
+                return
             if parsed.path == "/api/students-json":
                 session = self.current_session()
                 payload = self.read_json_body()
@@ -964,8 +1437,23 @@ class TeachingToolboxHandler(BaseHTTPRequestHandler):
                     run_with_oj_retry(session, lambda: save_students(session, payload))
                 )
                 return
+            if parsed.path in ("/api/feedback/summarize-image", "/api/feedback/ocr"):
+                payload = self.read_json_body()
+                self.write_json(summarize_feedback_image_with_codex(payload))
+                return
+            if parsed.path == "/api/feedback/check":
+                payload = self.read_json_body()
+                self.write_json(check_feedback_text_with_codex(payload))
+                return
+            if parsed.path == "/api/feedback/generate":
+                payload = self.read_json_body()
+                self.write_json(generate_feedback_with_codex(payload))
+                return
+            if parsed.path == "/api/feedback/revise":
+                payload = self.read_json_body()
+                self.write_json(revise_feedback_with_codex(payload))
+                return
             if parsed.path == "/api/agent/runs":
-                self.current_session()
                 payload = self.read_json_body()
                 self.write_json(create_agent_run(payload, AGENT_RUNS_DIR))
                 return
@@ -986,12 +1474,13 @@ class TeachingToolboxHandler(BaseHTTPRequestHandler):
         content_type = mimetypes.guess_type(file_path.name)[0] or "application/octet-stream"
         self.send_response(200)
         self.send_header("Content-Type", content_type)
+        self.send_header("Cache-Control", "no-store")
         self.send_header("Content-Length", str(len(payload)))
         self.end_headers()
         self.wfile.write(payload)
 
     def serve_download(self, download_id: str) -> None:
-        file_path = state.downloads.get(download_id)
+        file_path = self.current_session().downloads.get(download_id)
         if file_path is None or not file_path.exists():
             self.send_error(404)
             return

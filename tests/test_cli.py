@@ -774,7 +774,7 @@ def test_main_warns_and_skips_unmatched_after_class_problem(
     assert progress_call["after_class_problems"] == []
     assert progress_call["after_class_rank_records"] == []
     assert "不存在的题目" in captured.err
-    assert "当前训练未匹配" in captured.err
+    assert "课后题默认取当前课堂作业列表的前一个列表" in captured.err
     assert "上一训练未匹配" in captured.err
 
 
@@ -902,7 +902,7 @@ def test_main_falls_back_to_previous_training_for_after_class_problem(
     ]
 
 
-def test_main_merges_after_class_rank_records_for_mixed_sources(
+def test_main_ignores_current_training_after_class_problem(
     tmp_path: Path, monkeypatch, capsys
 ) -> None:
     progress_call: dict[str, object] = {}
@@ -1024,22 +1024,18 @@ def test_main_merges_after_class_rank_records_for_mixed_sources(
     )
 
     captured = capsys.readouterr()
-    merged_records = progress_call["after_class_rank_records"]
-
     assert exit_code == 0
-    assert captured.err == ""
+    assert "当前课后题" in captured.err
+    assert "课后题默认取当前课堂作业列表的前一个列表" in captured.err
     assert [problem.title for problem in progress_call["after_class_problems"]] == [
-        "当前课后题",
         "上一课后题",
     ]
-    assert merged_records == [
+    assert progress_call["after_class_rank_records"] == [
         {
             "uid": "u1",
-            "rank": 1,
-            "solvedCount": 2,
+            "rank": 99,
+            "solvedCount": 1,
             "submissionInfo": {
-                "P1001": {"isAC": True},
-                "P1002": {"isAC": True},
                 "P0901": {"isAC": True},
             },
         }

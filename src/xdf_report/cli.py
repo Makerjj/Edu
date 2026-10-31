@@ -61,6 +61,11 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="私有训练的训练密码；未提供时会在需要时提示输入",
     )
+    parser.add_argument(
+        "--homework-only",
+        action="store_true",
+        help="生成仅含姓名和作业完成情况的课后作业表",
+    )
     return parser
 
 
@@ -84,7 +89,7 @@ def build_output_path(request: ReportRequest) -> Path:
             _safe_filename(request.team_name),
             _safe_filename(request.training_name),
             _safe_filename(problem_part),
-            "学情反馈表.xlsx",
+            "课后作业完成情况.xlsx" if request.homework_only else "学情反馈表.xlsx",
         ]
     )
     return request.output_dir / filename
@@ -278,10 +283,11 @@ def find_previous_training(
     return trainings[current_index - 1]
 
 
-def _format_after_class_warning(
-    query: str, current_error: str, previous_error: str | None
-) -> str:
-    parts = [f"课后题查询“{query}”已跳过", f"当前训练未匹配（{current_error}）"]
+def _format_after_class_warning(query: str, previous_error: str | None) -> str:
+    parts = [
+        f"课后题查询“{query}”已跳过",
+        "课后题默认取当前课堂作业列表的前一个列表",
+    ]
     if previous_error is None:
         parts.append("无上一训练")
     else:
@@ -291,22 +297,15 @@ def _format_after_class_warning(
 
 def resolve_after_class_problems(
     queries: list[str],
-    current_problems: list[Problem],
+    _current_problems: list[Problem],
     previous_problems: list[Problem] | None,
-) -> tuple[list[Problem], bool, bool]:
+) -> tuple[list[Problem], bool]:
     matched: list[Problem] = []
-    matched_current = False
     matched_previous = False
     for query in queries:
-        current_match = try_match_problem_query(current_problems, query)
-        if isinstance(current_match, Problem):
-            matched.append(current_match)
-            matched_current = True
-            continue
-
         if previous_problems is None:
             print(
-                _format_after_class_warning(query, current_match, None),
+                _format_after_class_warning(query, None),
                 file=sys.stderr,
             )
             continue
@@ -318,10 +317,10 @@ def resolve_after_class_problems(
             continue
 
         print(
-            _format_after_class_warning(query, current_match, previous_match),
+            _format_after_class_warning(query, previous_match),
             file=sys.stderr,
         )
-    return matched, matched_current, matched_previous
+    return matched, matched_previous
 
 
 def _load_students(client: OJClient, group_id: int) -> list[Student]:
@@ -401,35 +400,6 @@ def _load_rank_records(client: OJClient, training_id: int) -> list[dict]:
     return payload.get("data", {}).get("records", [])
 
 
-def _merge_rank_records(*rank_record_groups: list[dict]) -> list[dict]:
-    merged_by_uid: dict[str, dict] = {}
-    for group in rank_record_groups:
-        for record in group:
-            uid = record.get("uid")
-            if uid is None:
-                continue
-            uid_key = str(uid)
-            submission_info = record.get("submissionInfo")
-            normalized_submission_info = (
-                dict(submission_info) if isinstance(submission_info, dict) else {}
-            )
-            existing = merged_by_uid.get(uid_key)
-            if existing is None:
-                merged_by_uid[uid_key] = {
-                    **record,
-                    "uid": uid_key,
-                    "submissionInfo": normalized_submission_info,
-                }
-                continue
-
-            existing_submission_info = existing.get("submissionInfo")
-            if not isinstance(existing_submission_info, dict):
-                existing_submission_info = {}
-                existing["submissionInfo"] = existing_submission_info
-            existing_submission_info.update(normalized_submission_info)
-    return list(merged_by_uid.values())
-
-
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
@@ -475,7 +445,6 @@ def main(argv: list[str] | None = None) -> int:
             )
         (
             after_class_problems,
-            matched_current_training,
             matched_previous_training,
         ) = resolve_after_class_problems(after_class_queries, problems, previous_problems)
 
@@ -491,24 +460,10 @@ def main(argv: list[str] | None = None) -> int:
 
         rank_records = _load_rank_records(oj_client, training.training_id)
         after_class_rank_records: list[dict] = []
-        if after_class_problems:
-            if (
-                matched_current_training
-                and matched_previous_training
-                and previous_training is not None
-            ):
-                previous_rank_records = _load_rank_records(
-                    oj_client, previous_training.training_id
-                )
-                after_class_rank_records = _merge_rank_records(
-                    rank_records, previous_rank_records
-                )
-            elif matched_previous_training and previous_training is not None:
-                after_class_rank_records = _load_rank_records(
-                    oj_client, previous_training.training_id
-                )
-            elif matched_current_training:
-                after_class_rank_records = rank_records
+        if after_class_problems and matched_previous_training and previous_training is not None:
+            after_class_rank_records = _load_rank_records(
+                oj_client, previous_training.training_id
+            )
 
         request = ReportRequest(
             team_name=team.name,
@@ -519,6 +474,7 @@ def main(argv: list[str] | None = None) -> int:
             after_class_problem_queries=[
                 problem.title for problem in after_class_problems
             ],
+            homework_only=args.homework_only,
         )
         output_path = explicit_output_path or build_output_path(request)
 

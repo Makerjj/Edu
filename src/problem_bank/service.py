@@ -42,3 +42,18 @@ def search_problem_bank(client: OJClient, request: ProblemBankSearch) -> dict[st
         "count": len(items),
         "items": items,
     }
+
+
+def search_local_problem_bank(request: ProblemBankSearch) -> dict[str, Any]:
+    query = request.query.strip()
+    if not query:
+        raise ValueError("请输入题号或题名关键词")
+
+    return {
+        "query": query,
+        "limit": max(1, min(int(request.limit or 8), 20)),
+        "count": 0,
+        "items": [],
+        "source": "local",
+        "message": "本地题库索引还没有接入；不会要求 OJ 登录。",
+    }

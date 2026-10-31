@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 
 from src.xdf_report.config import AppConfig
@@ -18,6 +19,21 @@ def test_build_parser_reads_team_and_optional_config() -> None:
 
     assert args.team == "C1-3"
     assert args.config == "custom.json"
+
+
+def test_build_parser_reads_optional_output_json() -> None:
+    parser = build_parser()
+
+    args = parser.parse_args(
+        [
+            "--team",
+            "2829",
+            "--output-json",
+            "students.2829.json",
+        ]
+    )
+
+    assert args.output_json == "students.2829.json"
 
 
 def test_main_prints_team_students_with_fake_clients(monkeypatch, capsys) -> None:
@@ -76,3 +92,73 @@ def test_main_prints_team_students_with_fake_clients(monkeypatch, capsys) -> Non
         "10001\tjason_a\tJason",
         "10002\tjason_b\tJason",
     ]
+
+
+def test_main_writes_editable_students_json(monkeypatch, tmp_path) -> None:
+    class FakeAuthClient:
+        def login(self, account: str, password: str) -> str:
+            return "dd-token"
+
+        def get_students(self, token: str) -> list[dict]:
+            return [{"studentCode": "S001"}]
+
+        def login_oj(self, token: str, student_code: str):
+            return type("Session", (), {"oj_token": "oj-token"})()
+
+    class FakeOJClient:
+        def __init__(self, token: str) -> None:
+            pass
+
+    output_path = tmp_path / "students.2829.json"
+    monkeypatch.setattr(
+        "src.xdf_report.list_team_students.load_config",
+        lambda path: AppConfig(
+            account="account",
+            password="password",
+            template_path=Path("tests/fixtures/template.xlsx"),
+            output_dir=Path("out"),
+        ),
+    )
+    monkeypatch.setattr(
+        "src.xdf_report.list_team_students.ensure_credentials",
+        lambda config: config,
+    )
+    monkeypatch.setattr("src.xdf_report.list_team_students.DingdangAuthClient", FakeAuthClient)
+    monkeypatch.setattr("src.xdf_report.list_team_students.OJClient", FakeOJClient)
+    monkeypatch.setattr(
+        "src.xdf_report.list_team_students.resolve_team",
+        lambda client, query: type("Team", (), {"name": "测试团队", "group_id": 2829})(),
+    )
+    monkeypatch.setattr(
+        "src.xdf_report.list_team_students._load_students",
+        lambda client, group_id: [
+            type("Student", (), {"uid": "10001", "username": "stu_a", "nickname": "小明"})(),
+            type("Student", (), {"uid": "10002", "username": "stu_b", "nickname": "小红"})(),
+        ],
+    )
+
+    exit_code = main(["--team", "2829", "--output-json", str(output_path)])
+
+    assert exit_code == 0
+    assert json.loads(output_path.read_text(encoding="utf-8")) == {
+        "team_gid": 2829,
+        "team_name": "测试团队",
+        "students": [
+            {
+                "uid": "10001",
+                "username": "stu_a",
+                "nickname": "小明",
+                "real_name": "小明",
+                "school": "",
+                "phone": "",
+            },
+            {
+                "uid": "10002",
+                "username": "stu_b",
+                "nickname": "小红",
+                "real_name": "小红",
+                "school": "",
+                "phone": "",
+            },
+        ],
+    }

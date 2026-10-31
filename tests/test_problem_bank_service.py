@@ -1,4 +1,8 @@
-from src.problem_bank.service import ProblemBankSearch, search_problem_bank
+from src.problem_bank.service import (
+    ProblemBankSearch,
+    search_local_problem_bank,
+    search_problem_bank,
+)
 
 
 class FakeClient:
@@ -43,3 +47,12 @@ def test_search_problem_bank_returns_markdown_detail():
     assert result["count"] == 1
     assert result["items"][0]["problemId"] == "GESP251203T2"
     assert "## 题意\n\n题面" in result["items"][0]["markdown"]
+
+
+def test_search_local_problem_bank_does_not_require_client():
+    result = search_local_problem_bank(ProblemBankSearch(query="map", limit=8))
+
+    assert result["query"] == "map"
+    assert result["source"] == "local"
+    assert result["count"] == 0
+    assert "不会要求 OJ 登录" in result["message"]

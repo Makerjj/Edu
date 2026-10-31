@@ -12,14 +12,38 @@ def test_build_progress_rows_marks_ac_as_check():
     assert rows[0].completion_by_problem["P1001"] == "✅"
 
 
-def test_build_progress_rows_leaves_blank_for_non_ac():
+def test_build_progress_rows_shows_wa_for_submitted_non_ac():
     students = [Student(uid="u2", username="s2", nickname="学生2")]
     problems = [Problem(problem_id="P1002", title="字典找字")]
     rank_records = [{"uid": "u2", "submissionInfo": {"P1002": {"isAC": False}}}]
 
     rows = build_progress_rows(students, problems, rank_records)
 
-    assert rows[0].completion_by_problem["P1002"] == ""
+    assert rows[0].completion_by_problem["P1002"] == "WA"
+
+
+def test_build_progress_rows_shows_pac_for_nonzero_partial_score():
+    students = [Student(uid="u2", username="s2", nickname="学生2")]
+    problems = [Problem(problem_id="P1002", title="字典找字")]
+    rank_records = [{"uid": "u2", "submissionInfo": {
+        "P1002": {"isAC": False, "score": 40},
+    }}]
+
+    rows = build_progress_rows(students, problems, rank_records)
+
+    assert rows[0].completion_by_problem["P1002"] == "PAC"
+
+
+def test_build_progress_rows_uses_explicit_pac_status():
+    students = [Student(uid="u2", username="s2", nickname="学生2")]
+    problems = [Problem(problem_id="P1002", title="字典找字")]
+    rank_records = [{"uid": "u2", "submissionInfo": {
+        "P1002": {"isAC": False, "status": "PAC"},
+    }}]
+
+    rows = build_progress_rows(students, problems, rank_records)
+
+    assert rows[0].completion_by_problem["P1002"] == "PAC"
 
 
 def test_build_progress_rows_handles_missing_rank_record():
@@ -63,6 +87,27 @@ def test_build_progress_rows_tracks_in_class_and_after_class_sections():
     )
 
     assert rows[0].completion_by_problem["P1006"] == "✅"
+    assert rows[0].after_class_completion_by_problem["P2001"] == "✅"
+
+
+def test_build_progress_rows_marks_absent_for_in_class_only():
+    students = [Student(uid="u5", username="s5", nickname="学生5")]
+    problems = [Problem(problem_id="P1006", title="课堂题")]
+    after_class_problems = [Problem(problem_id="P2001", title="课后题")]
+    rank_records = [{"uid": "u5", "submissionInfo": {"P1006": {"isAC": True}}}]
+    after_class_rank_records = [{"uid": "u5", "submissionInfo": {"P2001": {"isAC": True}}}]
+
+    rows = build_progress_rows(
+        students,
+        problems,
+        rank_records,
+        after_class_problems=after_class_problems,
+        after_class_rank_records=after_class_rank_records,
+        absent_student_uids={"u5"},
+    )
+
+    assert rows[0].is_absent is True
+    assert rows[0].completion_by_problem["P1006"] == "请假"
     assert rows[0].after_class_completion_by_problem["P2001"] == "✅"
 
 

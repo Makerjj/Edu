@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="zh-CN">
+<html lang="zh-CN" data-theme="light">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -7,7 +7,7 @@
     <link rel="stylesheet" href="./styles.css" />
   </head>
   <body data-auth-state="checking">
-    <section class="login-screen" id="loginScreen" hidden>
+    <section class="login-screen" id="loginScreen" hidden aria-hidden="true">
       <form class="login-panel" id="loginForm">
         <div class="brand login-brand">
           <div class="brand-mark">教</div>
@@ -25,43 +25,55 @@
           <input name="password" type="password" autocomplete="current-password" placeholder="OJ 密码" />
         </label>
         <label class="remember-row">
-          <input name="remember" type="checkbox" />
+          <input name="remember" type="checkbox" checked />
           <span>记住登录状态</span>
         </label>
-        <button id="loginBtn" class="primary-button" type="submit">登录</button>
+        <div class="login-actions">
+          <button id="loginBtn" class="primary-button" type="submit">登录</button>
+          <button id="cancelLoginBtn" class="ghost-button" type="button">先不登录</button>
+        </div>
         <div class="status-banner" id="loginStatus" hidden></div>
       </form>
     </section>
 
-    <div class="app-shell" id="appShell" hidden>
+    <div class="app-shell" id="appShell">
       <aside class="sidebar" aria-label="工具导航">
         <div class="brand">
-          <div class="brand-mark">教</div>
+          <div class="brand-mark" aria-hidden="true">T</div>
           <div>
             <h1>教学工具箱</h1>
-            <p>学情、题库、教研 Agent</p>
+            <p>Teaching workspace</p>
           </div>
         </div>
         <nav class="nav">
-          <button class="nav-button active" data-tool="profile" type="button">学情反馈表</button>
-          <button class="nav-button" data-tool="problemBank" type="button">题库检索</button>
-          <button class="nav-button" data-tool="service" type="button">课后服务话术</button>
-          <button class="nav-button" data-tool="prep" type="button">课前备课</button>
-          <button class="nav-button" data-tool="agentStudio" type="button">Agent 工作台</button>
+          <button class="nav-button" data-tool="profile" type="button">学情反馈表</button>
+          <button class="nav-button active" data-tool="feedback" type="button">课后反馈</button>
         </nav>
-        <section class="side-panel">
-          <h2>当前边界</h2>
-          <p>网页是统一入口；学情、题库和 Agent 运行记录由后端服务承载。重渲染、长任务和审计会逐步接入。</p>
-        </section>
+        <p class="sidebar-footer">本地教学工作流</p>
       </aside>
+
+      <div
+        class="sidebar-resize-handle"
+        id="sidebarResizeHandle"
+        role="separator"
+        aria-label="调整侧边栏宽度"
+        aria-orientation="vertical"
+        tabindex="0"
+      ></div>
 
       <main class="workspace">
         <header class="topbar">
           <div>
-            <h2 id="toolTitle">学情反馈表</h2>
+            <p class="workspace-context">今日教学工作台</p>
+            <h2 id="toolTitle">课后反馈</h2>
           </div>
           <div class="actions">
-            <div class="user-menu" id="userMenu">
+            <span class="save-state" id="saveState" role="status">本地工作区</span>
+            <button id="themeToggleBtn" class="theme-toggle-button" type="button" aria-label="切换到深色模式" aria-pressed="false">
+              <span class="theme-toggle-icon" aria-hidden="true">◐</span>
+              <span id="themeToggleText">深色</span>
+            </button>
+            <div class="user-menu" id="userMenu" hidden>
               <button class="user-menu-button" id="userMenuBtn" type="button" aria-haspopup="menu" aria-expanded="false">
                 <span id="currentUser"></span>
                 <span class="user-menu-caret" aria-hidden="true">⌄</span>
@@ -70,13 +82,37 @@
                 <button id="logoutBtn" type="button" role="menuitem">退出登录</button>
               </div>
             </div>
-            <button id="generateReportBtn" class="primary-button" type="button" title="生成 Excel">生成 Excel</button>
+            <button id="openLoginBtn" class="ghost-button" type="button" hidden>登录 OJ</button>
+            <button id="generateReportBtn" class="primary-button" type="button" title="生成学情表" hidden>生成学情表</button>
           </div>
         </header>
 
-        <section class="tool-view active" id="profileTool" data-tool-view="profile">
+        <section class="tool-view" id="profileTool" data-tool-view="profile">
+          <div class="status-banner" id="reportStatus" hidden></div>
+          <section class="report-result" id="reportResult" aria-labelledby="reportResultTitle" hidden>
+            <div class="report-result-toolbar">
+              <h3 id="reportResultTitle"></h3>
+              <div class="report-result-actions">
+                <button id="exitReportBtn" class="mini-button" type="button" title="退出学情表，返回选择">退出学情表</button>
+                <button id="adjustReportBtn" class="mini-button" type="button">调整选择</button>
+                <button id="copyReportBtn" class="mini-button" type="button">复制表格</button>
+                <button id="downloadReportBtn" class="primary-button" type="button">下载 Excel</button>
+              </div>
+            </div>
+            <div class="report-table-scroll" tabindex="0" role="region" aria-label="学情表">
+              <table class="report-table" id="reportTable"></table>
+            </div>
+          </section>
           <form class="input-panel" id="profileForm">
+            <h3 class="form-section-title">班级与训练</h3>
             <div class="form-grid">
+              <label data-field="reportType">
+                表格类型
+                <select name="reportType" id="reportTypeSelect">
+                  <option value="standard">常规学情反馈表</option>
+                  <option value="homework">课后作业完成情况</option>
+                </select>
+              </label>
               <label data-field="team">
                 团队 / 班级
                 <select name="team" id="teamSelect">
@@ -101,7 +137,7 @@
             <input type="hidden" name="problems" id="problemsInput" />
             <input type="hidden" name="afterClassProblems" id="afterProblemsInput" />
             <input type="hidden" name="studentsJson" id="studentsJsonInput" />
-            <div class="status-banner" id="reportStatus" hidden></div>
+            <h3 class="form-section-title">学生名单</h3>
             <label data-field="students">
               学生名单
               <div class="problem-toolbar">
@@ -119,7 +155,8 @@
               </div>
               <div class="helper-text" id="savedStudentsStatus">保存后，下次选择该团队会自动使用这份名单</div>
             </label>
-            <label data-field="problems">
+            <h3 class="form-section-title">题目范围</h3>
+            <label data-field="problems" id="classProblemField">
               课堂题目
               <div class="problem-toolbar">
                 <span id="problemStatus">请选择训练后加载题目</span>
@@ -129,7 +166,7 @@
               </div>
               <div class="checkbox-list" id="problemList" aria-live="polite"></div>
             </label>
-            <label>
+            <label id="afterProblemField">
               课后题目
               <div class="problem-toolbar">
                 <span id="afterProblemStatus">请选择训练后加载课后题</span>
@@ -142,162 +179,60 @@
           </form>
         </section>
 
-        <section class="tool-view" id="problemBankTool" data-tool-view="problemBank">
-          <form class="input-panel" id="problemBankForm">
+        <section class="tool-view active" id="feedbackTool" data-tool-view="feedback">
+          <form class="input-panel" id="feedbackForm">
+            <h3 class="form-section-title">课堂信息</h3>
             <div class="form-grid">
               <label>
-                题号 / 关键词
-                <input name="query" placeholder="例如：GESP251203T2 / 小杨 / map" />
+                课堂内容主题（独立，可选）
+                <input name="topic" placeholder="例如：数组与循环综合练习" />
               </label>
               <label>
-                返回数量
-                <input name="limit" type="number" min="1" max="20" value="8" />
-              </label>
-            </div>
-            <label class="remember-row">
-              <input name="includeDetail" type="checkbox" checked />
-              <span>拉取题面详情</span>
-            </label>
-            <div class="problem-toolbar">
-              <span id="problemBankStatus">登录后可检索 OJ/GESP 题库</span>
-              <button id="searchProblemBankBtn" class="mini-button" type="button">检索题库</button>
-            </div>
-            <div class="result-list" id="problemBankResults" aria-live="polite"></div>
-          </form>
-        </section>
-
-        <section class="tool-view" id="serviceTool" data-tool-view="service">
-          <form class="input-panel" id="serviceForm">
-            <div class="form-grid">
-              <label>
-                学生称呼
-                <input name="studentName" placeholder="例如：孩子 / 小明" />
-              </label>
-              <label>
-                服务场景
-                <select name="scenario">
-                  <option value="课后总结" selected>课后总结</option>
-                  <option value="作业提醒">作业提醒</option>
-                  <option value="续课沟通">续课沟通</option>
-                  <option value="问题预警">问题预警</option>
-                </select>
-              </label>
-              <label>
-                表现层次
+                默认表现
                 <select name="level">
                   <option value="优秀">优秀</option>
-                  <option value="良好" selected>良好</option>
-                  <option value="中等">中等</option>
-                  <option value="需关注">需关注</option>
-                </select>
-              </label>
-              <label>
-                长度
-                <select name="length">
-                  <option value="短">短</option>
-                  <option value="中" selected>中</option>
-                  <option value="长">长</option>
+                  <option value="中等" selected>中等</option>
+                  <option value="差">差</option>
                 </select>
               </label>
             </div>
             <label>
-              课堂事实
-              <textarea name="facts" rows="6" placeholder="输入真实事实：做了哪些题、回答过什么问题、哪里卡住、老师怎么提醒。"></textarea>
+              课堂内容反馈（独立，可选）
+              <div class="knowledge-toolbar">
+                <button id="compressKnowledgeBtn" class="mini-button" type="button">压缩知识点</button>
+              </div>
+              <div class="knowledge-input-shell" id="feedbackKnowledgeShell">
+                <div class="knowledge-image-preview" id="feedbackScreenshotPreview" hidden>
+                  <div class="knowledge-image-frame">
+                    <img id="feedbackScreenshotImage" alt="课堂截图预览" />
+                    <button id="removeFeedbackScreenshotBtn" class="remove-image-button" type="button" aria-label="删除课堂截图" title="删除课堂截图">×</button>
+                  </div>
+                </div>
+                <textarea name="knowledgePoints" rows="3" placeholder="用于整理统一的课堂内容，不会自动写入学生私人反馈"></textarea>
+              </div>
             </label>
-            <label>
-              想强调的目标
-              <textarea name="goal" rows="4" placeholder="例如：让家长看到孩子在进步，同时提醒课后要补循环边界。"></textarea>
-            </label>
-          </form>
-        </section>
-
-        <section class="tool-view" id="prepTool" data-tool-view="prep">
-          <form class="input-panel" id="prepForm">
-            <div class="form-grid">
-              <label>
-                课程主题
-                <input name="lessonTopic" placeholder="例如：一次函数图像与性质" />
-              </label>
-              <label>
-                学段 / 对象
-                <input name="audience" placeholder="例如：初二基础班 / C++ 五六年级" />
-              </label>
-              <label>
-                课型
-                <select name="lessonType">
-                  <option value="新授课" selected>新授课</option>
-                  <option value="复习课">复习课</option>
-                  <option value="习题课">习题课</option>
-                  <option value="试讲课">试讲课</option>
-                </select>
-              </label>
-              <label>
-                时长
-                <input name="duration" placeholder="例如：90分钟" />
-              </label>
-            </div>
-            <label>
-              学情分析
-              <textarea name="studentProfile" rows="5" placeholder="学生已有基础、常见错误、理解难点。"></textarea>
-            </label>
-            <label>
-              重点 / 难点
-              <textarea name="keyPoints" rows="5" placeholder="例如：重点是概念和基本题型，难点是数形结合或边界条件。"></textarea>
-            </label>
-            <label>
-              题目 / 材料
-              <textarea name="materials" rows="5" placeholder="列出要讲的题目、PPT页码、OJ题号或教材章节。"></textarea>
-            </label>
-          </form>
-        </section>
-
-        <section class="tool-view" id="agentStudioTool" data-tool-view="agentStudio">
-          <form class="input-panel" id="agentStudioForm">
-            <div class="form-grid">
-              <label>
-                任务名称
-                <input name="title" placeholder="例如：GESP 四级 map/set 教学包" />
-              </label>
-              <label>
-                审计等级
-                <select name="auditLevel">
-                  <option value="strict" selected>严格</option>
-                  <option value="normal">常规</option>
-                </select>
-              </label>
-            </div>
-            <label>
-              任务目标
-              <textarea name="goal" rows="4" placeholder="说明要生成什么、给谁用、必须满足哪些质量标准。"></textarea>
-            </label>
-            <label>
-              证据检索关键词
-              <textarea name="evidenceQueries" rows="3" placeholder="每行一个关键词或题号，例如：GESP 四级 map / 小杨的字典"></textarea>
-            </label>
-            <fieldset class="choice-group">
-              <legend>输出产物</legend>
-              <label><input name="outputs" type="checkbox" value="question_pack.generate" checked /> 专题题单</label>
-              <label><input name="outputs" type="checkbox" value="lesson_plan.generate" checked /> 备课方案</label>
-              <label><input name="outputs" type="checkbox" value="video.workflow" /> 视频 contract</label>
-            </fieldset>
             <div class="problem-toolbar">
-              <span id="agentStudioStatus">先创建可追踪 run，后续再接真实执行</span>
-              <button id="createAgentRunBtn" class="mini-button" type="button">创建 Run</button>
+              <span id="feedbackOcrStatus">截图仅用于整理课堂内容，可不上传；学生私人反馈根据下方表现和细节单独生成</span>
+              <input id="feedbackScreenshotInput" type="file" accept="image/png,image/jpeg,image/webp" hidden />
+              <button id="uploadFeedbackScreenshotBtn" class="mini-button" type="button">选择课堂截图</button>
+              <button id="confirmFeedbackScreenshotBtn" class="mini-button" type="button" disabled>确认上传给 Codex 总结</button>
             </div>
-            <section class="tool-registry-panel">
-              <h3>工具注册表</h3>
-              <div class="tool-registry" id="agentToolRegistry"></div>
-            </section>
-            <section class="tool-registry-panel">
-              <h3>运行记录</h3>
-              <div class="result-list" id="agentRunList" aria-live="polite"></div>
-            </section>
+            <textarea id="feedbackAgentSummary" class="agent-summary-preview" rows="5" readonly hidden></textarea>
+            <h3 class="form-section-title">学生表现</h3>
+            <div class="problem-toolbar">
+              <span id="feedbackStatus">请上传学生 JSON 后生成反馈</span>
+              <input id="feedbackJsonUploadInput" type="file" accept=".json,application/json" hidden />
+              <button id="uploadFeedbackJsonBtn" class="mini-button" type="button">上传学生 JSON</button>
+            </div>
+            <h3 class="form-section-title">生成与复核</h3>
+            <div class="feedback-list" id="feedbackList" aria-live="polite"></div>
           </form>
         </section>
 
       </main>
     </div>
 
+    <script src="./feedback_builder.js"></script>
     <script src="./app.js"></script>
   </body>
 </html>

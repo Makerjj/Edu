@@ -35,6 +35,7 @@ class ReportRequest:
     template_path: Path
     output_dir: Path
     after_class_problem_queries: list[str] = field(default_factory=list)
+    homework_only: bool = False
 
 
 @dataclass(frozen=True)
@@ -42,6 +43,7 @@ class StudentProgress:
     student: Student
     completion_by_problem: dict[str, str] = field(default_factory=dict)
     after_class_completion_by_problem: dict[str, str] = field(default_factory=dict)
+    is_absent: bool = False
 
 
 @dataclass(frozen=True)
